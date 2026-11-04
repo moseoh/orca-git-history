@@ -1,7 +1,21 @@
 # File History
 
-An [Orca](https://onorca.dev) plugin that shows Git history in the right sidebar for the project
-you click in the left sidebar.
+An [Orca](https://onorca.dev) plugin that shows the Git history of the project you click in the
+left sidebar: in a full editor tab, or in a right-sidebar panel.
+
+## Git History tab
+
+Open it from the tab bar **+** menu or the command palette: **Git History**.
+
+- Commits on the left, newest first; scroll for older ones. Arrow keys move between commits.
+- The picked commit's whole message, author, date and changed files (with added and removed line
+  counts) on the right. Pick a file for its diff, **Split** (side by side) or **Unified**.
+- **Find a file** narrows the list to the commits that changed that file, following renames.
+- **Open file** opens the file in an editor tab; **File history** shows only that file's commits.
+
+The tab is an untitled `.githistory` file used only as a handle: nothing is written to it.
+
+## Panel
 
 - **Commits**: the project's commits, 50 at a time (**Load more** for older ones). Expand a
   commit to list the files it changed; pick a file to see that file's diff.
@@ -38,4 +52,6 @@ Layout:
 - `src/worker.ts`: resolves the workspace folder and answers requests.
 - `src/git.ts`: runs git and parses its output; `src/search.ts`: file search ranking.
 - `src/panel.tsx`: the sidebar panel.
+- `editor/`: the Git History tab (`app.ts`), its side-by-side diff parser (`diff.ts`) and styles.
+- `src/workspace.ts`: which workspace Orca has focused, shared by the panel and the tab.
 - `src/node.d.ts`: types for the few Node built-ins the worker uses, so no `@types/node` is needed.

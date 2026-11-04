@@ -91,6 +91,10 @@ export default function activate(orca: OrcaWorkerApi): void {
     git.changedFiles(await folderOf(workspaceId), hash)
   )
 
+  orca.panels.handle('commit.info', async ({ workspaceId, hash }) =>
+    git.commitInfo(await folderOf(workspaceId), hash)
+  )
+
   orca.panels.handle('file.diff', async ({ workspaceId, hash, path, oldPath }) => ({
     diff: await git.fileDiff(await folderOf(workspaceId), hash, path, oldPath)
   }))

@@ -1,7 +1,7 @@
 // Runs git in a workspace folder and turns its output into plain data. Parsers are exported
 // separately so they can be tested without a repository.
 import { execFile } from 'node:child_process'
-import type { ChangedFile, Commit, CommitPage } from './protocol'
+import type { ChangedFile, Commit, CommitInfo, CommitPage } from './protocol'
 
 export const LIMITS = {
   /** Commits one page of a log holds. */
@@ -125,6 +125,47 @@ export function parseChangedFiles(output: string): ChangedFile[] {
     .filter((item): item is ChangedFile => item !== null)
 }
 
+/**
+ * `git diff-tree --numstat -z` output → added/removed line counts by new path; null counts for
+ * a binary file. A rename record is `add\tdel\t\0old\0new\0`.
+ */
+export function parseNumstat(output: string): Map<string, { additions: number; deletions: number } | null> {
+  const counts = new Map<string, { additions: number; deletions: number } | null>()
+  const parts = output.split('\0')
+  for (let index = 0; index < parts.length; index += 1) {
+    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[index] ?? '')
+    if (!match) continue
+    let path = match[3] ?? ''
+    if (path === '') {
+      // Rename or copy: the next two parts are the old and new paths.
+      path = parts[index + 2] ?? ''
+      index += 2
+    }
+    counts.set(
+      path,
+      match[1] === '-' ? null : { additions: Number(match[1]), deletions: Number(match[2]) }
+    )
+  }
+  return counts
+}
+
+/** `git show -s` with {@link INFO_FORMAT} → the commit's details. */
+export function parseInfo(output: string): CommitInfo {
+  const [hash = '', author = '', email = '', time = '0', committer = '', parents = '', ...message] =
+    output.split(FIELD)
+  return {
+    hash,
+    author,
+    email,
+    date: Number(time) * 1000,
+    committer,
+    parents: parents.split(' ').filter((item) => item.length > 0),
+    message: message.join(FIELD).trimEnd()
+  }
+}
+
+const INFO_FORMAT = `--format=%H${FIELD}%an${FIELD}%ae${FIELD}%at${FIELD}%cn${FIELD}%P${FIELD}%B`
+
 export function capDiff(diff: string): string {
   if (diff.length <= LIMITS.diffChars) return diff
   const cut = diff.lastIndexOf('\n', LIMITS.diffChars)
@@ -171,19 +212,21 @@ export async function changedFiles(
   cwd: string,
   hash: string
 ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
-  const output = await git(cwd, [
-    'diff-tree',
-    '--no-commit-id',
-    '-r',
-    '-M',
-    '--root',
-    '-m',
-    '--first-parent',
-    '--name-status',
-    checkHash(hash)
+  const base = ['diff-tree', '--no-commit-id', '-r', '-M', '--root', '-m', '--first-parent']
+  const [names, numbers] = await Promise.all([
+    git(cwd, [...base, '--name-status', checkHash(hash)]),
+    git(cwd, [...base, '--numstat', '-z', hash])
   ])
-  const files = parseChangedFiles(output)
+  const counts = parseNumstat(numbers)
+  const files = parseChangedFiles(names).map((file) => {
+    const count = counts.get(file.path)
+    return count ? { ...file, ...count } : file
+  })
   return { files: files.slice(0, LIMITS.changedFiles), truncated: files.length > LIMITS.changedFiles }
+}
+
+export async function commitInfo(cwd: string, hash: string): Promise<CommitInfo> {
+  return parseInfo(await git(cwd, ['show', '-s', INFO_FORMAT, checkHash(hash)]))
 }
 
 /** The diff one commit made to one file; `oldPath` keeps a rename's both sides. */

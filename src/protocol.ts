@@ -30,6 +30,22 @@ export type ChangedFile = {
   status: 'A' | 'C' | 'D' | 'M' | 'R' | 'T' | 'U' | 'X' | 'B'
   path: string
   oldPath?: string
+  /** Lines added and removed; absent for a binary file. */
+  additions?: number
+  deletions?: number
+}
+
+/** One commit in full, for the Git History tab's details pane. */
+export type CommitInfo = {
+  hash: string
+  author: string
+  email: string
+  /** Author time, ms since the epoch. */
+  date: number
+  committer: string
+  parents: string[]
+  /** The whole message: subject, blank line, body. */
+  message: string
 }
 
 export {}
@@ -52,6 +68,11 @@ declare module 'orca' {
     'commit.files': {
       input: { workspaceId: string; hash: string }
       output: { files: ChangedFile[]; truncated: boolean }
+    }
+    /** One commit's author, parents and whole message. */
+    'commit.info': {
+      input: { workspaceId: string; hash: string }
+      output: CommitInfo
     }
     /** The diff one commit made to one file. */
     'file.diff': {

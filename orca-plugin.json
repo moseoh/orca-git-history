@@ -19,11 +19,36 @@
         "entry": "src/panel.tsx",
         "ui": "components"
       }
+    ],
+    "customEditors": [
+      {
+        "id": "git-history",
+        "title": "Git History",
+        "extensions": [
+          ".githistory"
+        ],
+        "entry": "editor/main.ts",
+        "frame": "isolated"
+      }
+    ],
+    "newFiles": [
+      {
+        "id": "git-history",
+        "title": "Git History",
+        "extension": ".githistory",
+        "template": "editor/template.githistory"
+      }
     ]
   },
   "capabilities": [
-    { "kind": "workspace:read" },
-    { "kind": "workspace:write" },
-    { "kind": "storage:own" }
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "workspace:write"
+    },
+    {
+      "kind": "storage:own"
+    }
   ]
 }

@@ -62,9 +62,11 @@ test('answers the project log, a commit’s files and one file’s diff', async 
     assert.equal(log.hasMore, false)
     const hash = log.commits[0]?.hash ?? ''
     assert.deepEqual(await worker.request('commit.files', { workspaceId: 'local', hash }), {
-      files: [{ status: 'M', path: 'src/greet.ts' }],
+      files: [{ status: 'M', path: 'src/greet.ts', additions: 1, deletions: 0 }],
       truncated: false
     })
+    const info = await worker.request('commit.info', { workspaceId: 'local', hash })
+    assert.equal(info.message, 'Add d')
     const { diff } = await worker.request('file.diff', { workspaceId: 'local', hash, path: 'src/greet.ts' })
     assert.match(diff, /^\+d$/m)
     await worker.deactivate()

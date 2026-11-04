@@ -29,8 +29,10 @@ import {
   type TreeItem
 } from 'orca'
 import type { ChangedFile, Commit, Workspace } from './protocol'
+import { ago, focusedWorkspace, type FocusedContext } from './workspace'
 
-type FocusedContext = { branch: string; displayName: string } | null
+export { ago, focusedWorkspace }
+
 type Focus =
   | { state: 'waiting' }
   | { state: 'none'; name: string | null }
@@ -87,16 +89,6 @@ async function run<T>(label: string, work: () => Promise<T>): Promise<T | undefi
   }
 }
 
-/** The workspace Orca has focused, matched by name and branch; null when none matches. */
-export function focusedWorkspace(list: readonly Workspace[], context: FocusedContext): Workspace | null {
-  if (context === null) return null
-  return (
-    list.find((item) => item.name === context.displayName && (item.branch ?? '') === context.branch) ??
-    list.find((item) => item.name === context.displayName) ??
-    null
-  )
-}
-
 /** Splits a diff on line breaks into pieces of at most {@link DIFF_CHUNK} characters. */
 export function diffChunks(text: string): string[] {
   const chunks: string[] = []
@@ -109,19 +101,6 @@ export function diffChunks(text: string): string[] {
   }
   chunks.push(rest)
   return chunks
-}
-
-/** "5m", "3h", "2d", "4mo", "1y": short enough for a sidebar row. */
-export function ago(at: number, now = Date.now()): string {
-  const minutes = Math.max(0, Math.floor((now - at) / 60_000))
-  if (minutes < 1) return 'now'
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d`
-  if (days < 365) return `${Math.floor(days / 30)}mo`
-  return `${Math.floor(days / 365)}y`
 }
 
 const commitKey = (hash: string): string => `c:${hash}`
