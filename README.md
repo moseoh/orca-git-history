@@ -3,13 +3,11 @@
 An [Orca](https://onorca.dev) plugin that shows Git history in the right sidebar for the project
 you click in the left sidebar.
 
-- **Commits**: the project's recent commits. Select one to see the files it changed and its diff.
-- **Find a file**: type part of a path to search the workspace's tracked files. Files you looked
-  at recently are listed when the box is empty.
-- **History**: the commits that changed the file, following renames. Select one to see its diff.
-- **Blame**: who last changed each line, including lines not committed yet. Press Enter or
-  double-click a line to jump to its commit in History.
-- **Lines**: enter a line range to see only the commits that changed those lines (`git log -L`).
+- **Commits**: the project's commits, 50 at a time (**Load more** for older ones). Expand a
+  commit to list the files it changed; pick a file to see that file's diff.
+- **Find a file**: type part of a path to search the workspace's tracked files, then pick one to
+  list only the commits that changed it (following renames). Files looked at recently are kept
+  under **Recent files**.
 - **Open file**: opens the file in an Orca editor tab.
 
 The panel follows the project focused in Orca; with none focused it asks you to click one.

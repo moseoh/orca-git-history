@@ -1,100 +1,117 @@
 // Runs real git against a throwaway repository, plus the parsers on edge-case output.
 import { assert, test } from 'orca/testing'
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import * as git from './git'
 import { searchFiles } from './search'
 import { createTestRepo } from './testing/repo'
 
-test('file history follows the rename and records each path', async () => {
+test('workspace log pages through the branch, newest first', async () => {
   const repo = await createTestRepo()
   try {
-    const commits = await git.fileHistory(repo.dir, 'src/greet.ts')
+    const first = await git.workspaceLog(repo.dir, 0)
     assert.deepEqual(
-      commits.map((item) => [item.subject, item.author, item.path, item.oldPath]),
+      first.commits.map((item) => [item.subject, item.author]),
       [
-        ['Add d', 'Grace', 'src/greet.ts', undefined],
-        ['Move hello', 'Ada', 'src/greet.ts', 'hello.ts'],
-        ['Shout b', 'Grace', 'hello.ts', undefined],
-        ['Add hello', 'Ada', 'hello.ts', undefined]
+        ['Add d', 'Grace'],
+        ['Move hello', 'Ada'],
+        ['Shout b', 'Grace'],
+        ['Add hello', 'Ada']
       ]
     )
-    assert.equal(commits[3]?.date, Date.parse('2024-01-01T10:00:00Z'))
-    assert.equal(commits[0]?.shortHash, commits[0]?.hash.slice(0, commits[0].shortHash.length))
-  } finally {
-    repo.dispose()
-  }
-})
+    assert.equal(first.hasMore, false)
+    assert.equal(first.commits[3]?.date, Date.parse('2024-01-01T10:00:00Z'))
 
-test('commit diff uses the path the file had in that commit', async () => {
-  const repo = await createTestRepo()
-  try {
-    const commits = await git.fileHistory(repo.dir, 'src/greet.ts')
-    const shout = commits.find((item) => item.subject === 'Shout b')
-    assert.ok(shout)
-    const diff = await git.commitDiff(repo.dir, shout.hash, shout.path ?? '', shout.oldPath)
-    assert.match(diff, /^-b$/m)
-    assert.match(diff, /^\+B$/m)
-    const move = commits.find((item) => item.subject === 'Move hello')
-    assert.ok(move)
-    const rename = await git.commitDiff(repo.dir, move.hash, move.path ?? '', move.oldPath)
-    assert.match(rename, /rename from hello\.ts/)
-    await assert.rejects(git.commitDiff(repo.dir, '--help', 'src/greet.ts'), /Not a commit hash/)
-  } finally {
-    repo.dispose()
-  }
-})
-
-test('workspace log lists the branch’s commits and a commit shows all its changes', async () => {
-  const repo = await createTestRepo()
-  try {
-    const commits = await git.workspaceLog(repo.dir)
+    for (let index = 0; index < git.LIMITS.pageSize; index += 1) {
+      await git.git(repo.dir, ['-c', 'user.name=Bot', '-c', 'user.email=bot@example.com', 'commit', '-q', '--allow-empty', '-m', `Empty ${index}`])
+    }
+    const page1 = await git.workspaceLog(repo.dir, 0)
+    assert.equal(page1.commits.length, git.LIMITS.pageSize)
+    assert.equal(page1.hasMore, true)
+    const page2 = await git.workspaceLog(repo.dir, git.LIMITS.pageSize)
     assert.deepEqual(
-      commits.map((item) => item.subject),
+      page2.commits.map((item) => item.subject),
       ['Add d', 'Move hello', 'Shout b', 'Add hello']
     )
-    const first = await git.commitShow(repo.dir, commits[3]?.hash ?? '')
-    assert.match(first, /4 files changed/)
-    assert.match(first, /^\+\+\+ b\/docs\/greeting\.md$/m)
-    await assert.rejects(git.commitShow(repo.dir, 'HEAD; rm'), /Not a commit hash/)
+    assert.equal(page2.hasMore, false)
+    await assert.rejects(git.workspaceLog(repo.dir, -1), /page offset/)
   } finally {
     repo.dispose()
   }
 })
 
-test('blame names who last changed each line, including uncommitted ones', async () => {
+test('file log follows the rename and records each path', async () => {
   const repo = await createTestRepo()
   try {
-    writeFileSync(join(repo.dir, 'src/greet.ts'), 'a\nB\nc\nd\ne\n')
-    const { lines, truncated } = await git.blame(repo.dir, 'src/greet.ts')
-    assert.equal(truncated, false)
+    const { commits, hasMore } = await git.fileLog(repo.dir, 'src/greet.ts', 0)
+    assert.equal(hasMore, false)
     assert.deepEqual(
-      lines.map((item) => [item.line, item.code, item.uncommitted ? 'working tree' : item.author]),
+      commits.map((item) => [item.subject, item.path, item.oldPath]),
       [
-        [1, 'a', 'Ada'],
-        [2, 'B', 'Grace'],
-        [3, 'c', 'Ada'],
-        [4, 'd', 'Grace'],
-        [5, 'e', 'working tree']
+        ['Add d', 'src/greet.ts', undefined],
+        ['Move hello', 'src/greet.ts', 'hello.ts'],
+        ['Shout b', 'hello.ts', undefined],
+        ['Add hello', 'hello.ts', undefined]
       ]
     )
-    assert.equal(lines[1]?.summary, 'Shout b')
-    assert.equal(lines[1]?.date, Date.parse('2024-02-01T10:00:00Z'))
   } finally {
     repo.dispose()
   }
 })
 
-test('line history lists the commits that touched a range, with their diffs', async () => {
+test('changed files list what a commit did, the root commit included', async () => {
   const repo = await createTestRepo()
   try {
-    const commits = await git.lineHistory(repo.dir, 'src/greet.ts', 2, 2)
+    const { commits } = await git.workspaceLog(repo.dir, 0)
+    const byName = (subject: string) => commits.find((item) => item.subject === subject)?.hash ?? ''
+    assert.deepEqual((await git.changedFiles(repo.dir, byName('Move hello'))).files, [
+      { status: 'R', path: 'src/greet.ts', oldPath: 'hello.ts' }
+    ])
+    assert.deepEqual((await git.changedFiles(repo.dir, byName('Add d'))).files, [
+      { status: 'M', path: 'src/greet.ts' }
+    ])
+    const root = await git.changedFiles(repo.dir, byName('Add hello'))
     assert.deepEqual(
-      commits.map((item) => item.subject),
-      ['Shout b', 'Add hello']
+      root.files.map((item) => `${item.status} ${item.path}`).sort(),
+      ['A README.md', 'A docs/greeting.md', 'A hello.ts', 'A src/util.ts']
     )
-    assert.match(commits[0]?.diff ?? '', /^\+B$/m)
-    await assert.rejects(git.lineHistory(repo.dir, 'src/greet.ts', 3, 1), /line range/)
+    await assert.rejects(git.changedFiles(repo.dir, '--all'), /Not a commit hash/)
+  } finally {
+    repo.dispose()
+  }
+})
+
+test('a merge lists and diffs what it brought in from the other branch', async () => {
+  const repo = await createTestRepo()
+  try {
+    const run = (args: string[]) =>
+      git.git(repo.dir, ['-c', 'user.name=Ada', '-c', 'user.email=ada@example.com', ...args])
+    await run(['checkout', '-q', '-b', 'side'])
+    await run(['rm', '-q', 'docs/greeting.md'])
+    await run(['commit', '-q', '-m', 'Drop greeting'])
+    await run(['checkout', '-q', 'main'])
+    await run(['merge', '-q', '--no-ff', '-m', 'Merge side', 'side'])
+    const merge = (await git.workspaceLog(repo.dir, 0)).commits[0]
+    assert.equal(merge?.subject, 'Merge side')
+    assert.deepEqual((await git.changedFiles(repo.dir, merge.hash)).files, [{ status: 'D', path: 'docs/greeting.md' }])
+    assert.match(await git.fileDiff(repo.dir, merge.hash, 'docs/greeting.md'), /^-hi$/m)
+  } finally {
+    repo.dispose()
+  }
+})
+
+test('file diff shows one file in one commit, rename sides included', async () => {
+  const repo = await createTestRepo()
+  try {
+    const { commits } = await git.fileLog(repo.dir, 'src/greet.ts', 0)
+    const shout = commits.find((item) => item.subject === 'Shout b')
+    assert.ok(shout)
+    const diff = await git.fileDiff(repo.dir, shout.hash, shout.path ?? '', shout.oldPath)
+    assert.match(diff, /^-b$/m)
+    assert.match(diff, /^\+B$/m)
+    assert.ok(!diff.includes('README'))
+    const move = commits.find((item) => item.subject === 'Move hello')
+    assert.ok(move)
+    assert.match(await git.fileDiff(repo.dir, move.hash, move.path ?? '', move.oldPath), /rename from hello\.ts/)
+    await assert.rejects(git.fileDiff(repo.dir, '--help', 'src/greet.ts'), /Not a commit hash/)
   } finally {
     repo.dispose()
   }
@@ -110,34 +127,11 @@ test('paths that leave the workspace or look like options are refused', async ()
 test('git errors carry git’s own first line', async () => {
   const repo = await createTestRepo()
   try {
-    await assert.rejects(git.fileHistory(join(repo.dir, 'nope'), 'x'), (error) => error instanceof git.GitError)
-    await assert.rejects(git.blame(repo.dir, 'missing.ts'), /no such path|fatal/)
+    await assert.rejects(git.workspaceLog(`${repo.dir}/nope`, 0), (error) => error instanceof git.GitError)
+    await assert.rejects(git.fileDiff(repo.dir, 'abcdef1', 'x'), /fatal|bad|unknown/)
   } finally {
     repo.dispose()
   }
-})
-
-test('blame parser reuses commit details for repeated hashes', () => {
-  const hash = 'a'.repeat(40)
-  const output = [
-    `${hash} 1 1 2`,
-    'author Ada',
-    'author-time 1700000000',
-    'summary First',
-    'filename x',
-    '\tone',
-    `${hash} 2 2`,
-    'filename x',
-    '\ttwo'
-  ].join('\n')
-  const lines = git.parseBlame(output)
-  assert.deepEqual(
-    lines.map((item) => [item.line, item.author, item.summary, item.code]),
-    [
-      [1, 'Ada', 'First', 'one'],
-      [2, 'Ada', 'First', 'two']
-    ]
-  )
 })
 
 test('long diffs are cut on a line break', () => {

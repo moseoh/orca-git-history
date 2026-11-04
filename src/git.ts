@@ -1,21 +1,15 @@
 // Runs git in a workspace folder and turns its output into plain data. Parsers are exported
 // separately so they can be tested without a repository.
 import { execFile } from 'node:child_process'
-import type { BlameLine, Commit, LineCommit } from './protocol'
+import type { ChangedFile, Commit, CommitPage } from './protocol'
 
 export const LIMITS = {
-  /** Commits `file.history` returns. */
-  historyCommits: 300,
-  /** Commits `workspace.log` returns. */
-  logCommits: 200,
-  /** Commits `lines.history` returns. */
-  lineCommits: 100,
-  /** Lines `file.blame` returns. */
-  blameLines: 2000,
-  /** Characters kept per blamed line of code. */
-  blameCode: 200,
-  /** Characters of one diff sent to the panel. */
-  diffChars: 200_000
+  /** Commits one page of a log holds. */
+  pageSize: 50,
+  /** Characters of one file's diff sent to the panel. */
+  diffChars: 60_000,
+  /** Files listed for one commit. */
+  changedFiles: 500
 } as const
 
 const FIELD = '\x1f'
@@ -71,9 +65,30 @@ export function checkRelativePath(path: string): string {
   return path
 }
 
+function checkHash(hash: string): string {
+  if (!/^[0-9a-f]{4,40}$/.test(hash)) throw new GitError(`Not a commit hash: ${hash}`)
+  return hash
+}
+
+function checkSkip(skip: number): number {
+  if (!Number.isInteger(skip) || skip < 0) throw new GitError(`Not a page offset: ${skip}`)
+  return skip
+}
+
 function parseHeader(line: string): Commit {
   const [hash = '', shortHash = '', author = '', time = '0', ...subject] = line.split(FIELD)
   return { hash, shortHash, author, date: Number(time) * 1000, subject: subject.join(FIELD) }
+}
+
+/** One `--name-status` line → the file and how it changed. */
+function parseNameStatus(line: string): ChangedFile | null {
+  const [code = '', first, second] = line.split('\t')
+  if (first === undefined || !/^[ACDMRTUXB]/.test(code)) return null
+  const status = code[0] as ChangedFile['status']
+  if ((status === 'R' || status === 'C') && second !== undefined) {
+    return { status, path: second, oldPath: first }
+  }
+  return { status, path: first }
 }
 
 /** `git ls-files -z` output → paths. */
@@ -82,81 +97,32 @@ export function parseLsFiles(output: string): string[] {
 }
 
 /**
- * `git log --follow --name-status` with {@link COMMIT_FORMAT} → commits, each with the path the
- * file had in that commit (and the path before, for a rename).
+ * `git log` with {@link COMMIT_FORMAT}, optionally `--name-status`, → commits. With name-status
+ * (file history), each commit records the path the file had in it and the path before a rename.
  */
-export function parseHistory(output: string): Commit[] {
+export function parseLog(output: string): Commit[] {
   const commits: Commit[] = []
   for (const record of output.split(RECORD)) {
     const lines = record.split('\n').filter((line) => line.length > 0)
     const header = lines.shift()
     if (header === undefined) continue
     const commit = parseHeader(header)
-    const status = lines.find((line) => /^[ACDMRTUXB]/.test(line))
-    if (status !== undefined) {
-      const [code = '', first = '', second] = status.split('\t')
-      if ((code.startsWith('R') || code.startsWith('C')) && second !== undefined) {
-        commit.path = second
-        commit.oldPath = first
-      } else {
-        commit.path = first
-      }
+    const change = lines.map(parseNameStatus).find((item) => item !== null)
+    if (change) {
+      commit.path = change.path
+      if (change.oldPath !== undefined) commit.oldPath = change.oldPath
     }
     commits.push(commit)
   }
   return commits
 }
 
-/** `git blame --porcelain` → one entry per line of the file. */
-export function parseBlame(output: string): BlameLine[] {
-  const commits = new Map<string, { author: string; date: number; summary: string }>()
-  const lines: BlameLine[] = []
-  let current: { hash: string; line: number } | null = null
-  for (const raw of output.split('\n')) {
-    if (raw.startsWith('\t')) {
-      if (current === null) continue
-      const info = commits.get(current.hash) ?? { author: '', date: 0, summary: '' }
-      lines.push({
-        line: current.line,
-        hash: current.hash,
-        shortHash: current.hash.slice(0, 8),
-        author: info.author,
-        date: info.date,
-        summary: info.summary,
-        code: raw.slice(1, 1 + LIMITS.blameCode),
-        uncommitted: /^0+$/.test(current.hash)
-      })
-      current = null
-      continue
-    }
-    const header = /^([0-9a-f]{40}) \d+ (\d+)/.exec(raw)
-    if (header) {
-      const hash = header[1] as string
-      current = { hash, line: Number(header[2]) }
-      if (!commits.has(hash)) commits.set(hash, { author: '', date: 0, summary: '' })
-      continue
-    }
-    if (current === null) continue
-    const info = commits.get(current.hash)
-    if (info === undefined) continue
-    if (raw.startsWith('author ')) info.author = raw.slice('author '.length)
-    else if (raw.startsWith('author-time ')) info.date = Number(raw.slice('author-time '.length)) * 1000
-    else if (raw.startsWith('summary ')) info.summary = raw.slice('summary '.length)
-  }
-  return lines
-}
-
-/** `git log -L` with {@link COMMIT_FORMAT} → commits, each with the diff of that line range. */
-export function parseLineHistory(output: string): LineCommit[] {
-  const commits: LineCommit[] = []
-  for (const record of output.split(RECORD)) {
-    if (record.trim().length === 0) continue
-    const newline = record.indexOf('\n')
-    const header = newline === -1 ? record : record.slice(0, newline)
-    const diff = newline === -1 ? '' : record.slice(newline + 1).replace(/^\n+/, '').trimEnd()
-    commits.push({ ...parseHeader(header), diff: capDiff(diff) })
-  }
-  return commits
+/** `git diff-tree --name-status` output → changed files. */
+export function parseChangedFiles(output: string): ChangedFile[] {
+  return output
+    .split('\n')
+    .map(parseNameStatus)
+    .filter((item): item is ChangedFile => item !== null)
 }
 
 export function capDiff(diff: string): string {
@@ -165,75 +131,79 @@ export function capDiff(diff: string): string {
   return `${diff.slice(0, cut === -1 ? LIMITS.diffChars : cut)}\n… diff truncated`
 }
 
+/** Asks for one commit more than a page so the answer knows whether another page exists. */
+function page(commits: Commit[]): CommitPage {
+  return { commits: commits.slice(0, LIMITS.pageSize), hasMore: commits.length > LIMITS.pageSize }
+}
+
 export async function listFiles(cwd: string): Promise<string[]> {
   return parseLsFiles(await git(cwd, ['ls-files', '-z']))
 }
 
-export async function fileHistory(cwd: string, path: string): Promise<Commit[]> {
+/** A page of the checked-out branch's commits, newest first. */
+export async function workspaceLog(cwd: string, skip: number): Promise<CommitPage> {
+  const output = await git(cwd, [
+    'log',
+    `--skip=${checkSkip(skip)}`,
+    `-n${LIMITS.pageSize + 1}`,
+    COMMIT_FORMAT
+  ])
+  return page(parseLog(output))
+}
+
+/** A page of the commits that changed one file, following renames. */
+export async function fileLog(cwd: string, path: string, skip: number): Promise<CommitPage> {
   const output = await git(cwd, [
     'log',
     '--follow',
     '--name-status',
-    `-n${LIMITS.historyCommits}`,
+    `--skip=${checkSkip(skip)}`,
+    `-n${LIMITS.pageSize + 1}`,
     COMMIT_FORMAT,
     '--',
     checkRelativePath(path)
   ])
-  return parseHistory(output)
+  return page(parseLog(output))
 }
 
-/** The newest commits of the checked-out branch, for the whole workspace. */
-export async function workspaceLog(cwd: string): Promise<Commit[]> {
-  return parseHistory(await git(cwd, ['log', `-n${LIMITS.logCommits}`, COMMIT_FORMAT]))
+/** The files one commit changed, against its first parent (a merge lists what it brought in). */
+export async function changedFiles(
+  cwd: string,
+  hash: string
+): Promise<{ files: ChangedFile[]; truncated: boolean }> {
+  const output = await git(cwd, [
+    'diff-tree',
+    '--no-commit-id',
+    '-r',
+    '-M',
+    '--root',
+    '-m',
+    '--first-parent',
+    '--name-status',
+    checkHash(hash)
+  ])
+  const files = parseChangedFiles(output)
+  return { files: files.slice(0, LIMITS.changedFiles), truncated: files.length > LIMITS.changedFiles }
 }
 
-function checkHash(hash: string): string {
-  if (!/^[0-9a-f]{4,40}$/.test(hash)) throw new GitError(`Not a commit hash: ${hash}`)
-  return hash
-}
-
-/** Everything one commit changed: a file summary, then the full diff. */
-export async function commitShow(cwd: string, hash: string): Promise<string> {
-  const output = await git(cwd, ['show', '--format=', '--stat', '--patch', '--find-renames', checkHash(hash)])
-  return capDiff(output.replace(/^\n+/, '').trimEnd())
-}
-
-/** The diff one commit made to a file; `oldPath` keeps a rename's both sides. */
-export async function commitDiff(
+/** The diff one commit made to one file; `oldPath` keeps a rename's both sides. */
+export async function fileDiff(
   cwd: string,
   hash: string,
   path: string,
   oldPath?: string
 ): Promise<string> {
-  checkHash(hash)
   const paths = [checkRelativePath(path)]
   if (oldPath !== undefined && oldPath !== path) paths.push(checkRelativePath(oldPath))
-  const output = await git(cwd, ['show', '--format=', '--find-renames', hash, '--', ...paths])
-  return capDiff(output.trimEnd())
-}
-
-export async function blame(
-  cwd: string,
-  path: string
-): Promise<{ lines: BlameLine[]; truncated: boolean }> {
-  const all = parseBlame(await git(cwd, ['blame', '--porcelain', '--', checkRelativePath(path)]))
-  return { lines: all.slice(0, LIMITS.blameLines), truncated: all.length > LIMITS.blameLines }
-}
-
-export async function lineHistory(
-  cwd: string,
-  path: string,
-  start: number,
-  end: number
-): Promise<LineCommit[]> {
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) {
-    throw new GitError('Enter a line range such as 10 to 20.')
-  }
   const output = await git(cwd, [
-    'log',
-    `-n${LIMITS.lineCommits}`,
-    COMMIT_FORMAT,
-    `-L${start},${end}:${checkRelativePath(path)}`
+    'show',
+    '--format=',
+    '-M',
+    '-m',
+    '--first-parent',
+    checkHash(hash),
+    '--',
+    ...paths
   ])
-  return parseLineHistory(output)
+  return capDiff(output.replace(/^\n+/, '').trimEnd())
 }

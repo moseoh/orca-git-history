@@ -9,6 +9,8 @@ import { searchFiles } from './search'
 const RECENT_LIMIT = 15
 /** How long a workspace's `git ls-files` answer is reused while someone types. */
 const FILE_LIST_TTL_MS = 30_000
+/** How long Orca's workspace list is reused before asking again. */
+const WORKSPACE_LIST_TTL_MS = 10_000
 
 type LocalWorkspace = Workspace & { path: string }
 
@@ -19,16 +21,28 @@ function isLocal(hostId: string | null): boolean {
 
 export default function activate(orca: OrcaWorkerApi): void {
   const fileLists = new Map<string, { at: number; files: Promise<string[]> }>()
+  let workspaceList: { at: number; workspaces: Promise<LocalWorkspace[]> } | null = null
 
-  async function localWorkspaces(): Promise<LocalWorkspace[]> {
-    const { workspaces } = await orca.host.call('workspace.list')
+  function localWorkspaces(fresh = false): Promise<LocalWorkspace[]> {
+    if (!fresh && workspaceList !== null && Date.now() - workspaceList.at < WORKSPACE_LIST_TTL_MS) {
+      return workspaceList.workspaces
+    }
+    const workspaces = orca.host.call('workspace.list').then((answer) =>
+      answer.workspaces
+        .filter((workspace) => isLocal(workspace.hostId))
+        .map(({ id, name, kind, branch, path }) => ({ id, name, kind, branch, path }))
+    )
+    workspaceList = { at: Date.now(), workspaces }
+    workspaces.catch(() => {
+      workspaceList = null
+    })
     return workspaces
-      .filter((workspace) => isLocal(workspace.hostId))
-      .map(({ id, name, kind, branch, path }) => ({ id, name, kind, branch, path }))
   }
 
   async function folderOf(workspaceId: string): Promise<string> {
-    const workspace = (await localWorkspaces()).find((item) => item.id === workspaceId)
+    const find = async (fresh: boolean) =>
+      (await localWorkspaces(fresh)).find((item) => item.id === workspaceId)
+    const workspace = (await find(false)) ?? (await find(true))
     if (workspace === undefined) {
       throw new Error('That workspace is gone or is not on this computer.')
     }
@@ -55,7 +69,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   orca.panels.handle('workspaces.list', async () => ({
-    workspaces: (await localWorkspaces()).map(({ id, name, kind, branch }) => ({
+    workspaces: (await localWorkspaces(true)).map(({ id, name, kind, branch }) => ({
       id,
       name,
       kind,
@@ -63,12 +77,22 @@ export default function activate(orca: OrcaWorkerApi): void {
     }))
   }))
 
-  orca.panels.handle('workspace.log', async ({ workspaceId }) => ({
-    commits: await git.workspaceLog(await folderOf(workspaceId))
-  }))
+  orca.panels.handle('workspace.log', async ({ workspaceId, skip }) =>
+    git.workspaceLog(await folderOf(workspaceId), skip)
+  )
 
-  orca.panels.handle('commit.show', async ({ workspaceId, hash }) => ({
-    diff: await git.commitShow(await folderOf(workspaceId), hash)
+  orca.panels.handle('file.log', async ({ workspaceId, path, skip }) => {
+    const answer = await git.fileLog(await folderOf(workspaceId), path, skip)
+    if (skip === 0) await remember(workspaceId, path)
+    return answer
+  })
+
+  orca.panels.handle('commit.files', async ({ workspaceId, hash }) =>
+    git.changedFiles(await folderOf(workspaceId), hash)
+  )
+
+  orca.panels.handle('file.diff', async ({ workspaceId, hash, path, oldPath }) => ({
+    diff: await git.fileDiff(await folderOf(workspaceId), hash, path, oldPath)
   }))
 
   orca.panels.handle('files.search', async ({ workspaceId, query }) => {
@@ -77,24 +101,6 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (query.trim().length === 0) return { files: [], total: 0, recent }
     return { ...searchFiles(await filesOf(workspaceId, folder), query), recent }
   })
-
-  orca.panels.handle('file.history', async ({ workspaceId, path }) => {
-    const commits = await git.fileHistory(await folderOf(workspaceId), path)
-    await remember(workspaceId, path)
-    return { commits }
-  })
-
-  orca.panels.handle('commit.diff', async ({ workspaceId, hash, path, oldPath }) => ({
-    diff: await git.commitDiff(await folderOf(workspaceId), hash, path, oldPath)
-  }))
-
-  orca.panels.handle('file.blame', async ({ workspaceId, path }) =>
-    git.blame(await folderOf(workspaceId), path)
-  )
-
-  orca.panels.handle('lines.history', async ({ workspaceId, path, start, end }) => ({
-    commits: await git.lineHistory(await folderOf(workspaceId), path, start, end)
-  }))
 
   orca.panels.handle('file.open', async ({ workspaceId, path }) => {
     git.checkRelativePath(path)

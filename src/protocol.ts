@@ -22,18 +22,14 @@ export type Commit = {
   oldPath?: string
 }
 
-export type LineCommit = Commit & { diff: string }
+/** One page of a log; `hasMore` when older commits follow. */
+export type CommitPage = { commits: Commit[]; hasMore: boolean }
 
-export type BlameLine = {
-  line: number
-  hash: string
-  shortHash: string
-  author: string
-  date: number
-  summary: string
-  code: string
-  /** Changed in the working tree, not committed yet. */
-  uncommitted: boolean
+/** A file one commit changed: Added, Modified, Deleted, Renamed, Copied, Type change, ... */
+export type ChangedFile = {
+  status: 'A' | 'C' | 'D' | 'M' | 'R' | 'T' | 'U' | 'X' | 'B'
+  path: string
+  oldPath?: string
 }
 
 export {}
@@ -42,40 +38,30 @@ declare module 'orca' {
   interface PluginRequests {
     /** Local workspaces Orca knows (SSH and other hosts are left out). */
     'workspaces.list': { output: { workspaces: Workspace[] } }
-    /** The newest commits of the workspace's checked-out branch. */
+    /** A page of the workspace's checked-out branch, newest first, from `skip`. */
     'workspace.log': {
-      input: { workspaceId: string }
-      output: { commits: Commit[] }
+      input: { workspaceId: string; skip: number }
+      output: CommitPage
     }
-    /** Everything one commit changed in the workspace: file summary and full diff. */
-    'commit.show': {
+    /** A page of the commits that changed one file, following renames. Remembers it as recent. */
+    'file.log': {
+      input: { workspaceId: string; path: string; skip: number }
+      output: CommitPage
+    }
+    /** The files one commit changed. */
+    'commit.files': {
       input: { workspaceId: string; hash: string }
-      output: { diff: string }
+      output: { files: ChangedFile[]; truncated: boolean }
     }
-    /** Tracked files matching `query`, best first; `recent` when the query is empty. */
-    'files.search': {
-      input: { workspaceId: string; query: string }
-      output: { files: string[]; total: number; recent: string[] }
-    }
-    /** Commits that touched the file, following renames. Remembers the file as recent. */
-    'file.history': {
-      input: { workspaceId: string; path: string }
-      output: { commits: Commit[] }
-    }
-    /** The diff one commit made to a file. */
-    'commit.diff': {
+    /** The diff one commit made to one file. */
+    'file.diff': {
       input: { workspaceId: string; hash: string; path: string; oldPath?: string }
       output: { diff: string }
     }
-    /** Who last changed each line of the file as it is on disk. */
-    'file.blame': {
-      input: { workspaceId: string; path: string }
-      output: { lines: BlameLine[]; truncated: boolean }
-    }
-    /** Commits that changed lines `start`..`end`, each with its diff of those lines. */
-    'lines.history': {
-      input: { workspaceId: string; path: string; start: number; end: number }
-      output: { commits: LineCommit[] }
+    /** Tracked files matching `query`, best first, and the files looked at recently. */
+    'files.search': {
+      input: { workspaceId: string; query: string }
+      output: { files: string[]; total: number; recent: string[] }
     }
     /** Opens the file in an Orca editor tab. */
     'file.open': {
