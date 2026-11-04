@@ -6,6 +6,8 @@ import type { BlameLine, Commit, LineCommit } from './protocol'
 export const LIMITS = {
   /** Commits `file.history` returns. */
   historyCommits: 300,
+  /** Commits `workspace.log` returns. */
+  logCommits: 200,
   /** Commits `lines.history` returns. */
   lineCommits: 100,
   /** Lines `file.blame` returns. */
@@ -180,6 +182,22 @@ export async function fileHistory(cwd: string, path: string): Promise<Commit[]> 
   return parseHistory(output)
 }
 
+/** The newest commits of the checked-out branch, for the whole workspace. */
+export async function workspaceLog(cwd: string): Promise<Commit[]> {
+  return parseHistory(await git(cwd, ['log', `-n${LIMITS.logCommits}`, COMMIT_FORMAT]))
+}
+
+function checkHash(hash: string): string {
+  if (!/^[0-9a-f]{4,40}$/.test(hash)) throw new GitError(`Not a commit hash: ${hash}`)
+  return hash
+}
+
+/** Everything one commit changed: a file summary, then the full diff. */
+export async function commitShow(cwd: string, hash: string): Promise<string> {
+  const output = await git(cwd, ['show', '--format=', '--stat', '--patch', '--find-renames', checkHash(hash)])
+  return capDiff(output.replace(/^\n+/, '').trimEnd())
+}
+
 /** The diff one commit made to a file; `oldPath` keeps a rename's both sides. */
 export async function commitDiff(
   cwd: string,
@@ -187,7 +205,7 @@ export async function commitDiff(
   path: string,
   oldPath?: string
 ): Promise<string> {
-  if (!/^[0-9a-f]{4,40}$/.test(hash)) throw new GitError(`Not a commit hash: ${hash}`)
+  checkHash(hash)
   const paths = [checkRelativePath(path)]
   if (oldPath !== undefined && oldPath !== path) paths.push(checkRelativePath(oldPath))
   const output = await git(cwd, ['show', '--format=', '--find-renames', hash, '--', ...paths])

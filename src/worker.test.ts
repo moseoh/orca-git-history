@@ -74,6 +74,10 @@ test('answers blame, diffs and line history for a workspace file', async () => {
     const hash = lines.commits[0]?.hash ?? ''
     const { diff } = await worker.request('commit.diff', { workspaceId: 'local', hash, path: 'src/greet.ts' })
     assert.match(diff, /^\+d$/m)
+    const log = await worker.request('workspace.log', { workspaceId: 'local' })
+    assert.equal(log.commits[0]?.subject, 'Add d')
+    const shown = await worker.request('commit.show', { workspaceId: 'local', hash: log.commits[0]?.hash ?? '' })
+    assert.match(shown.diff, /src\/greet\.ts/)
     await worker.deactivate()
   } finally {
     repo.dispose()

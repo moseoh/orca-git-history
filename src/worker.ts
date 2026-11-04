@@ -63,6 +63,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     }))
   }))
 
+  orca.panels.handle('workspace.log', async ({ workspaceId }) => ({
+    commits: await git.workspaceLog(await folderOf(workspaceId))
+  }))
+
+  orca.panels.handle('commit.show', async ({ workspaceId, hash }) => ({
+    diff: await git.commitShow(await folderOf(workspaceId), hash)
+  }))
+
   orca.panels.handle('files.search', async ({ workspaceId, query }) => {
     const folder = await folderOf(workspaceId)
     const recent = await recentOf(workspaceId)

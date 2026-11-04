@@ -1,8 +1,9 @@
 # File History
 
-An [Orca](https://onorca.dev) plugin that shows the Git history of one file at a time in the
-right sidebar.
+An [Orca](https://onorca.dev) plugin that shows Git history in the right sidebar for the project
+you click in the left sidebar.
 
+- **Commits**: the project's recent commits. Select one to see the files it changed and its diff.
 - **Find a file**: type part of a path to search the workspace's tracked files. Files you looked
   at recently are listed when the box is empty.
 - **History**: the commits that changed the file, following renames. Select one to see its diff.
@@ -11,13 +12,13 @@ right sidebar.
 - **Lines**: enter a line range to see only the commits that changed those lines (`git log -L`).
 - **Open file**: opens the file in an Orca editor tab.
 
-The panel follows the workspace focused in Orca. Workspaces on SSH or other hosts are not
-supported yet.
+The panel follows the project focused in Orca; with none focused it asks you to click one.
+Projects on SSH or other hosts are not supported yet.
 
 ## Access it asks for
 
 - Runs its own worker (`trusted-worker`), which runs `git` in the workspace folder.
-- `workspace:read`: list workspaces and follow the focused one.
+- `workspace:read`: list projects and follow the focused one.
 - `workspace:write`: open a file in an editor tab.
 - `storage:own`: remember recent files per workspace.
 

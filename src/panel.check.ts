@@ -3,18 +3,25 @@
 import { defineCheck } from 'orca/testing'
 
 export default defineCheck({
-  'no-workspace': {
-    results: { 'workspace.list': { workspaces: [], truncated: false } }
+  'no-project': {
+    results: { 'workspace.list': { workspaces: [], truncated: false } },
+    events: [{ event: 'workspace.changed', payload: { context: null } }]
   },
   'this-repo': {
     results: {
       'workspace.list': {
         workspaces: [
-          { id: 'self', kind: 'worktree', name: 'file-history', path: '.', branch: 'main', hostId: null }
+          { id: 'self', kind: 'worktree', name: 'file-history', path: '.', branch: 'main', hostId: 'local' }
         ],
         truncated: false
       }
     },
-    storage: { 'recent:self': ['src/panel.tsx', 'src/git.ts'] }
+    storage: { 'recent:self': ['src/panel.tsx', 'src/git.ts'] },
+    events: [
+      {
+        event: 'workspace.changed',
+        payload: { context: { displayName: 'file-history', branch: 'main', terminals: [] } }
+      }
+    ]
   }
 })

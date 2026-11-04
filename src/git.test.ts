@@ -45,6 +45,23 @@ test('commit diff uses the path the file had in that commit', async () => {
   }
 })
 
+test('workspace log lists the branch’s commits and a commit shows all its changes', async () => {
+  const repo = await createTestRepo()
+  try {
+    const commits = await git.workspaceLog(repo.dir)
+    assert.deepEqual(
+      commits.map((item) => item.subject),
+      ['Add d', 'Move hello', 'Shout b', 'Add hello']
+    )
+    const first = await git.commitShow(repo.dir, commits[3]?.hash ?? '')
+    assert.match(first, /4 files changed/)
+    assert.match(first, /^\+\+\+ b\/docs\/greeting\.md$/m)
+    await assert.rejects(git.commitShow(repo.dir, 'HEAD; rm'), /Not a commit hash/)
+  } finally {
+    repo.dispose()
+  }
+})
+
 test('blame names who last changed each line, including uncommitted ones', async () => {
   const repo = await createTestRepo()
   try {

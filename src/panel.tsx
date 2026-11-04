@@ -1,12 +1,14 @@
 // No build step: Orca strips the types and compiles the JSX when the panel loads.
-// The panel holds what the person picked and what the worker answered; all git work happens in
-// src/worker.ts.
+// The panel follows the workspace focused in Orca's left sidebar: it shows that project's recent
+// commits, and a file's history, blame and line history once a file is picked. All git work
+// happens in src/worker.ts.
 import {
   atom,
   Button,
   Callout,
   CodeView,
   EmptyState,
+  IconButton,
   Input,
   List,
   ListItem,
@@ -14,7 +16,6 @@ import {
   plugin,
   read,
   Row,
-  Select,
   set,
   Spinner,
   Stack,
@@ -34,11 +35,16 @@ type FocusedContext = { branch: string; displayName: string } | null
 /** Largest piece of a diff one CodeView shows; a long diff is split into several. */
 export const DIFF_CHUNK = 12_000
 
-const workspaces = atom<Workspace[]>([])
-const workspaceId = atom<string | null>(null)
+/** null until Orca reports focus; `none` when no workspace is focused or it is not local. */
+const focus = atom<{ state: 'waiting' } | { state: 'none'; name: string | null } | { state: 'ok'; workspace: Workspace }>({
+  state: 'waiting'
+})
 const query = atom('')
 const results = atom<{ files: string[]; total: number }>({ files: [], total: 0 })
 const recent = atom<string[]>([])
+const projectLog = atom<Commit[] | null>(null)
+const projectCommit = atom<string | null>(null)
+const projectDiff = atom<string | null>(null)
 const file = atom<string | null>(null)
 const view = atom<View>('history')
 const history = atom<Commit[] | null>(null)
@@ -52,11 +58,16 @@ const lineCommit = atom<string | null>(null)
 const loading = atom<string | null>(null)
 const error = atom<string | null>(null)
 
-/** Bumped on every new selection, so a slow answer for an old one is dropped. */
+/** Bumped on every new workspace or file, so a slow answer for an old one is dropped. */
 let generation = 0
 
 function message(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason)
+}
+
+function workspaceId(): string | null {
+  const current = read(focus)
+  return current.state === 'ok' ? current.workspace.id : null
 }
 
 async function run<T>(label: string, work: () => Promise<T>): Promise<T | undefined> {
@@ -75,12 +86,13 @@ async function run<T>(label: string, work: () => Promise<T>): Promise<T | undefi
 }
 
 /** The workspace Orca has focused, matched by name and branch; null when none matches. */
-export function focusedWorkspace(list: readonly Workspace[], context: FocusedContext): string | null {
+export function focusedWorkspace(list: readonly Workspace[], context: FocusedContext): Workspace | null {
   if (context === null) return null
-  const match =
+  return (
     list.find((item) => item.name === context.displayName && (item.branch ?? '') === context.branch) ??
-    list.find((item) => item.name === context.displayName)
-  return match?.id ?? null
+    list.find((item) => item.name === context.displayName) ??
+    null
+  )
 }
 
 /** Splits a diff on line breaks into pieces of at most {@link DIFF_CHUNK} characters. */
@@ -97,7 +109,7 @@ export function diffChunks(text: string): string[] {
   return chunks
 }
 
-function resetFile(): void {
+function clearFile(): void {
   generation += 1
   set(file, null)
   set(history, null)
@@ -110,22 +122,47 @@ function resetFile(): void {
   set(loading, null)
 }
 
-async function chooseWorkspace(id: string | null): Promise<void> {
-  if (id === read(workspaceId)) return
-  set(workspaceId, id)
+async function showWorkspace(workspace: Workspace | null, name: string | null): Promise<void> {
+  const current = read(focus)
+  if (workspace !== null && current.state === 'ok' && current.workspace.id === workspace.id) return
+  clearFile()
   set(query, '')
   set(results, { files: [], total: 0 })
-  resetFile()
-  await search('')
+  set(recent, [])
+  set(projectLog, null)
+  set(projectCommit, null)
+  set(projectDiff, null)
+  if (workspace === null) {
+    set(focus, { state: 'none', name })
+    return
+  }
+  set(focus, { state: 'ok', workspace })
+  await Promise.all([loadProjectLog(), search('')])
+}
+
+async function loadProjectLog(): Promise<void> {
+  const id = workspaceId()
+  if (id === null) return
+  const answer = await run('Loading commits', () => plugin.request('workspace.log', { workspaceId: id }))
+  if (answer) set(projectLog, answer.commits)
+}
+
+async function showProjectCommit(hash: string): Promise<void> {
+  const id = workspaceId()
+  if (id === null) return
+  set(projectCommit, hash)
+  set(projectDiff, null)
+  const answer = await run('Loading commit', () => plugin.request('commit.show', { workspaceId: id, hash }))
+  if (answer && read(projectCommit) === hash) set(projectDiff, answer.diff)
 }
 
 async function search(text: string): Promise<void> {
   set(query, text)
-  const id = read(workspaceId)
+  const id = workspaceId()
   if (id === null) return
   try {
     const answer = await plugin.request('files.search', { workspaceId: id, query: text })
-    if (read(query) !== text || read(workspaceId) !== id) return
+    if (read(query) !== text || workspaceId() !== id) return
     set(results, { files: answer.files, total: answer.total })
     set(recent, answer.recent)
   } catch (reason) {
@@ -135,7 +172,7 @@ async function search(text: string): Promise<void> {
 
 async function loadView(next: View): Promise<void> {
   set(view, next)
-  const id = read(workspaceId)
+  const id = workspaceId()
   const path = read(file)
   if (id === null || path === null) return
   if (next === 'history' && read(history) === null) {
@@ -152,19 +189,21 @@ async function loadView(next: View): Promise<void> {
   }
 }
 
-async function openFileHistory(path: string): Promise<void> {
-  resetFile()
+async function openFile(path: string): Promise<void> {
+  clearFile()
   set(file, path)
-  await loadView(read(view))
-  if (read(view) !== 'history') {
-    // History also records the file as recent, so ask for it even from another tab.
-    const id = read(workspaceId)
-    if (id !== null) void plugin.request('file.history', { workspaceId: id, path }).catch(() => {})
-  }
+  set(query, '')
+  set(view, 'history')
+  await loadView('history')
+}
+
+async function backToProject(): Promise<void> {
+  clearFile()
+  await search('')
 }
 
 async function showCommit(hash: string): Promise<void> {
-  const id = read(workspaceId)
+  const id = workspaceId()
   const path = read(file)
   if (id === null || path === null) return
   set(commit, hash)
@@ -189,7 +228,7 @@ async function blameToHistory(key: string): Promise<void> {
 }
 
 async function runLineHistory(): Promise<void> {
-  const id = read(workspaceId)
+  const id = workspaceId()
   const path = read(file)
   if (id === null || path === null) return
   const start = Number(read(lineStart))
@@ -206,7 +245,7 @@ async function runLineHistory(): Promise<void> {
 }
 
 async function openInEditor(): Promise<void> {
-  const id = read(workspaceId)
+  const id = workspaceId()
   const path = read(file)
   if (id === null || path === null) return
   try {
@@ -217,30 +256,32 @@ async function openInEditor(): Promise<void> {
 }
 
 export function setup(ctx: PanelContext): void {
-  let context: FocusedContext = null
-  const follow = (): void => {
-    const id = focusedWorkspace(read(workspaces), context)
-    if (id !== null) void chooseWorkspace(id)
-  }
-  void plugin
-    .request('workspaces.list')
-    .then((answer) => {
-      set(workspaces, answer.workspaces)
-      if (read(workspaceId) === null) {
-        void chooseWorkspace(focusedWorkspace(answer.workspaces, context) ?? answer.workspaces[0]?.id ?? null)
+  let context: FocusedContext | undefined
+  let workspaces: Workspace[] | null = null
+  const follow = async (): Promise<void> => {
+    if (context === undefined) return
+    // Re-read the list when the focused workspace is new to us (just created, say).
+    if (context !== null && (workspaces === null || focusedWorkspace(workspaces, context) === null)) {
+      try {
+        workspaces = (await plugin.request('workspaces.list')).workspaces
+      } catch (reason) {
+        set(error, message(reason))
+        return
       }
-    })
-    .catch((reason) => set(error, message(reason)))
+    }
+    const match = workspaces === null ? null : focusedWorkspace(workspaces, context)
+    await showWorkspace(match, context?.displayName ?? null)
+  }
   ctx.subscriptions.push(
     on('workspace.changed', (payload) => {
       context = payload.context
-      follow()
+      void follow()
     })
   )
 }
 
 const COMMIT_COLUMNS: TableColumn[] = [
-  { key: 'hash', label: 'Commit', width: 'xs' },
+  { key: 'hash', label: 'SHA', width: 'xs' },
   { key: 'subject', label: 'Message', width: 'auto', minWidth: 'sm' },
   { key: 'author', label: 'Author', width: 'sm', hideBelow: 'sm' },
   { key: 'date', label: 'When', width: 'sm' }
@@ -263,7 +304,7 @@ const BLAME_COLUMNS: TableColumn[] = [
   { key: 'code', label: 'Code', width: 'auto', minWidth: 'md' },
   { key: 'author', label: 'Author', width: 'sm', hideBelow: 'md' },
   { key: 'date', label: 'When', width: 'sm', hideBelow: 'sm' },
-  { key: 'hash', label: 'Commit', width: 'xs', hideBelow: 'sm' }
+  { key: 'hash', label: 'SHA', width: 'xs', hideBelow: 'sm' }
 ]
 
 function blameRows(lines: readonly BlameLine[]): TableRow[] {
@@ -281,57 +322,84 @@ function blameRows(lines: readonly BlameLine[]): TableRow[] {
 
 function Diff(props: { text: string | null; label: string }) {
   if (props.text === null) return null
-  if (props.text.length === 0) return <Text muted>No changes to this file in this commit.</Text>
+  if (props.text.length === 0) return <Text muted>No changes in this commit.</Text>
+  const chunks = diffChunks(props.text)
   return (
     <Stack gap="xs">
-      {diffChunks(props.text).map((chunk, index) => (
-        <CodeView code={chunk} language="diff" label={`${props.label} ${index + 1}`} maxHeight="lg" />
+      {chunks.map((chunk, index) => (
+        <CodeView
+          code={chunk}
+          language="diff"
+          label={chunks.length === 1 ? props.label : `${props.label} (${index + 1}/${chunks.length})`}
+          maxHeight="lg"
+        />
       ))}
     </Stack>
   )
 }
 
-function FilePicker() {
-  const text = read(query)
-  const found = read(results)
-  const last = read(recent)
-  const showing = text.trim() === '' ? last : found.files
+function FileList(props: { label: string; files: readonly string[] }) {
   return (
-    <Stack gap="sm">
-      <Input
-        label="Find a file"
-        labelHidden
-        type="search"
-        placeholder="Find a tracked file"
-        value={text}
-        onChange={(value) => void search(value)}
-      />
-      {showing.length > 0 ? (
-        <List label={text.trim() === '' ? 'Recent files' : 'Matching files'}>
-          {showing.map((path) => (
-            <ListItem
-              title={path.slice(path.lastIndexOf('/') + 1)}
-              description={path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : undefined}
-              icon="file"
-              current={path === read(file)}
-              onPress={() => openFileHistory(path)}
-            />
-          ))}
-        </List>
-      ) : text.trim() === '' ? (
-        <Text muted size="sm">
-          Type part of a file name or path.
-        </Text>
-      ) : (
-        <Text muted size="sm">
-          No tracked file matches.
-        </Text>
-      )}
-      {found.total > found.files.length && text.trim() !== '' ? (
+    <List label={props.label}>
+      {props.files.map((path) => (
+        <ListItem
+          title={path.slice(path.lastIndexOf('/') + 1)}
+          description={path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : undefined}
+          icon="file"
+          onPress={() => openFile(path)}
+        />
+      ))}
+    </List>
+  )
+}
+
+function SearchResults() {
+  const found = read(results)
+  if (found.files.length === 0) return <Text muted size="sm">No tracked file matches.</Text>
+  return (
+    <Stack gap="xs">
+      <FileList label="Matching files" files={found.files} />
+      {found.total > found.files.length ? (
         <Text muted size="xs">
           Showing {found.files.length} of {found.total}. Type more to narrow it.
         </Text>
       ) : null}
+    </Stack>
+  )
+}
+
+function ProjectView() {
+  const commits = read(projectLog)
+  const selected = read(projectCommit)
+  const last = read(recent)
+  return (
+    <Stack gap="sm">
+      {last.length > 0 ? (
+        <Stack gap="xs">
+          <Text muted size="xs" weight="medium">
+            Recent files
+          </Text>
+          <FileList label="Recent files" files={last.slice(0, 5)} />
+        </Stack>
+      ) : null}
+      {commits === null ? null : (
+        <Stack gap="xs">
+          <Text muted size="xs" weight="medium">
+            Commits
+          </Text>
+          <Table
+            label="Commits"
+            columns={COMMIT_COLUMNS}
+            rows={commitRows(commits)}
+            selectionMode="single"
+            selected={selected === null ? [] : [selected]}
+            onSelectionChange={({ keys }) => (keys[0] === undefined ? undefined : showProjectCommit(keys[0]))}
+            emptyText="No commits yet."
+            maxHeight="md"
+          />
+        </Stack>
+      )}
+      <Diff text={read(projectDiff)} label="Changes" />
     </Stack>
   )
 }
@@ -412,64 +480,83 @@ function LinesView() {
   )
 }
 
+function FileView(props: { path: string }) {
+  return (
+    <Stack gap="sm">
+      <Row gap="xs" align="center" justify="between">
+        <Row gap="xs" align="center">
+          <IconButton icon="close" label="Back to project commits" size="sm" variant="ghost" onPress={backToProject} />
+          <Text weight="semibold" truncate>
+            {props.path}
+          </Text>
+        </Row>
+        <Button size="sm" variant="outline" icon="open-external" onPress={openInEditor}>
+          Open file
+        </Button>
+      </Row>
+      <Tabs label="File views" value={read(view)} onChange={(value) => void loadView(value as View)}>
+        <Tab value="history" label="History" icon="branch">
+          <HistoryView />
+        </Tab>
+        <Tab value="blame" label="Blame" icon="file-text">
+          <BlameView />
+        </Tab>
+        <Tab value="lines" label="Lines" icon="filter">
+          <LinesView />
+        </Tab>
+      </Tabs>
+    </Stack>
+  )
+}
+
 export default function Panel() {
-  const list = read(workspaces)
-  const id = read(workspaceId)
+  const current = read(focus)
+  if (current.state === 'waiting') return <Spinner label="Waiting for Orca" />
+  if (current.state === 'none') {
+    return (
+      <EmptyState
+        icon="folder"
+        title={current.name === null ? 'No project selected' : `${current.name} is not on this computer`}
+        description={
+          current.name === null
+            ? 'Click a project in the left sidebar to see its Git history.'
+            : 'File History works with local projects only for now.'
+        }
+      />
+    )
+  }
+  const { workspace } = current
   const path = read(file)
+  const text = read(query)
   const busy = read(loading)
   const problem = read(error)
   return (
-    <Stack gap="md">
-      {list.length > 1 ? (
-        <Select
-          label="Workspace"
-          labelHidden
-          value={id ?? undefined}
-          options={list.map((item) => ({
-            value: item.id,
-            label: item.branch === null ? item.name : `${item.name} (${item.branch})`
-          }))}
-          onChange={(value) => void chooseWorkspace(value)}
-        />
-      ) : null}
-      {id === null ? (
-        <EmptyState
-          icon="folder"
-          title="No workspace"
-          description="Open a Git workspace in Orca to see file history."
-        />
-      ) : (
-        <FilePicker />
-      )}
+    <Stack gap="sm">
+      <Row gap="xs" align="center">
+        <Text weight="semibold" truncate>
+          {workspace.name}
+        </Text>
+        {workspace.branch === null || workspace.branch === workspace.name ? null : (
+          <Text muted size="sm" truncate>
+            {workspace.branch}
+          </Text>
+        )}
+      </Row>
+      <Input
+        label="Find a file"
+        labelHidden
+        type="search"
+        placeholder="Find a file to see its history"
+        value={text}
+        onChange={(value) => void search(value)}
+      />
       {problem === null ? null : (
         <Callout tone="danger" title="Git could not answer">
           <Text>{problem}</Text>
         </Callout>
       )}
-      {path === null ? null : (
-        <Stack gap="sm">
-          <Row justify="between" align="center">
-            <Text weight="semibold" truncate>
-              {path}
-            </Text>
-            <Button size="sm" variant="outline" icon="open-external" onPress={openInEditor}>
-              Open file
-            </Button>
-          </Row>
-          <Tabs label="File views" value={read(view)} onChange={(value) => void loadView(value as View)}>
-            <Tab value="history" label="History" icon="branch">
-              <HistoryView />
-            </Tab>
-            <Tab value="blame" label="Blame" icon="file-text">
-              <BlameView />
-            </Tab>
-            <Tab value="lines" label="Lines" icon="filter">
-              <LinesView />
-            </Tab>
-          </Tabs>
-          {busy === null ? null : <Spinner label={busy} />}
-        </Stack>
-      )}
+      {text.trim() !== '' ? <SearchResults /> : path === null ? <ProjectView /> : <FileView path={path} />}
+      {busy === null ? null : <Spinner label={busy} />}
     </Stack>
   )
 }

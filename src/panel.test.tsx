@@ -7,7 +7,8 @@ import type { BlameLine, Commit, Workspace } from './protocol'
 
 const WORKSPACES: Workspace[] = [
   { id: 'w1', name: 'app', kind: 'worktree', branch: 'main' },
-  { id: 'w2', name: 'app', kind: 'worktree', branch: 'feature' }
+  { id: 'w2', name: 'app', kind: 'worktree', branch: 'feature' },
+  { id: 'w3', name: 'notes', kind: 'folder', branch: null }
 ]
 
 const COMMITS: Commit[] = [
@@ -15,16 +16,28 @@ const COMMITS: Commit[] = [
   { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', author: 'Ada', date: 1, subject: 'Add a', path: 'src/a.ts' }
 ]
 
+const PROJECT_LOG: Commit[] = [
+  { hash: 'c'.repeat(40), shortHash: 'ccccccc', author: 'Ada', date: 3, subject: 'Tidy up' },
+  ...COMMITS
+]
+
 const BLAME: BlameLine[] = [
   { line: 1, hash: 'a'.repeat(40), shortHash: 'aaaaaaaa', author: 'Ada', date: 1, summary: 'Add a', code: 'one', uncommitted: false },
   { line: 2, hash: '0'.repeat(40), shortHash: '00000000', author: 'Not Committed Yet', date: 3, summary: '', code: 'two', uncommitted: true }
 ]
 
-function host() {
+const focusOn = (displayName: string, branch: string) => ({ context: { displayName, branch, terminals: [] } })
+
+function host(failLog = false) {
   return mockHost({
     capabilities: ['workspace:read', 'workspace:write', 'storage:own'],
     requests: {
       'workspaces.list': () => ({ workspaces: WORKSPACES }),
+      'workspace.log': ({ workspaceId }) => {
+        if (failLog) throw new Error('fatal: not a git repository')
+        return { commits: workspaceId === 'w2' ? PROJECT_LOG.slice(0, 1) : PROJECT_LOG }
+      },
+      'commit.show': ({ hash }) => ({ diff: ` src/a.ts | 1 +\n\ndiff for ${hash.slice(0, 1)}` }),
       'files.search': ({ query }) => ({
         files: query === '' ? [] : ['src/a.ts', 'src/ab.ts'],
         total: query === '' ? 0 : 2,
@@ -41,33 +54,63 @@ function host() {
   })
 }
 
-test('follows the focused workspace and shows recent files', async () => {
+async function mountFocused(h = host()) {
+  const view = await mount(panel, { host: h })
+  await view.emit('workspace.changed', focusOn('app', 'main'))
+  return view
+}
+
+test('asks for a project until Orca focuses one', async () => {
   const view = await mount(panel, { host: host() })
-  await view.emit('workspace.changed', { context: { branch: 'feature', displayName: 'app', terminals: [] } })
-  assert.equal(view.valueOf({ label: 'Workspace' }), 'w2')
+  await view.emit('workspace.changed', { context: null })
+  assert.ok(view.find({ label: 'No project selected' }))
+  assert.equal(view.find({ label: 'Workspace' }), null)
+  await view.unmount()
+})
+
+test('shows the focused project’s commits and follows focus to another project', async () => {
+  const view = await mountFocused()
+  assert.ok(view.find({ text: 'app' }))
+  assert.deepEqual(view.rowsOf({ label: 'Commits' }), PROJECT_LOG.map((item) => item.hash))
   assert.ok(view.find({ label: 'recent.ts' }))
+
+  await view.selectRows({ label: 'Commits' }, [PROJECT_LOG[0]!.hash])
+  assert.match(view.find({ label: 'Changes' })?.text ?? '', /diff for c/)
+
+  await view.emit('workspace.changed', focusOn('app', 'feature'))
+  assert.deepEqual(view.rowsOf({ label: 'Commits' }), [PROJECT_LOG[0]!.hash])
+  assert.equal(view.find({ label: 'Changes' }), null)
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
 
-test('finds a file, shows its history and a commit diff', async () => {
-  const h = host()
-  const view = await mount(panel, { host: h })
+test('a focused project Orca does not list locally is explained', async () => {
+  const view = await mount(panel, { host: host() })
+  await view.emit('workspace.changed', focusOn('far-away', 'main'))
+  assert.ok(view.find({ label: 'far-away is not on this computer' }))
+  await view.unmount()
+})
+
+test('finds a file, shows its history and a commit diff, then goes back', async () => {
+  const view = await mountFocused()
   await view.type({ label: 'Find a file' }, 'a')
   await view.press({ label: 'a.ts' })
+  assert.equal(view.valueOf({ label: 'Find a file' }), '')
   assert.deepEqual(view.rowsOf({ label: 'Commits that changed this file' }), [COMMITS[0]!.hash, COMMITS[1]!.hash])
 
   await view.selectRows({ label: 'Commits that changed this file' }, [COMMITS[1]!.hash])
-  assert.match(view.find({ label: 'Diff 1' })?.text ?? '', /diff for a/)
+  assert.match(view.find({ label: 'Diff' })?.text ?? '', /diff for a/)
 
   await view.press({ text: 'Open file' })
+  await view.press({ label: 'Back to project commits' })
+  assert.ok(view.find({ label: 'Commits' }))
   assert.deepEqual(view.errors, [])
   assert.deepEqual(view.refusals, [])
   await view.unmount()
 })
 
 test('blame jumps to the commit in History', async () => {
-  const view = await mount(panel, { host: host() })
+  const view = await mountFocused()
   await view.type({ label: 'Find a file' }, 'a')
   await view.press({ label: 'a.ts' })
   await view.select({ label: 'File views' }, 'blame')
@@ -80,39 +123,28 @@ test('blame jumps to the commit in History', async () => {
 })
 
 test('line history shows the commits and diff for a range', async () => {
-  const view = await mount(panel, { host: host() })
+  const view = await mountFocused()
   await view.type({ label: 'Find a file' }, 'a')
   await view.press({ label: 'a.ts' })
   await view.select({ label: 'File views' }, 'lines')
   await view.type({ label: 'From line' }, '7')
   await view.press({ text: 'Show' })
   assert.deepEqual(view.rowsOf({ label: 'Commits that changed these lines' }), [COMMITS[0]!.hash])
-  assert.match(view.find({ label: 'Line diff 1' })?.text ?? '', /line 7/)
+  assert.match(view.find({ label: 'Line diff' })?.text ?? '', /line 7/)
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
 
 test('a worker failure shows as a callout', async () => {
-  const h = mockHost({
-    capabilities: ['workspace:read', 'workspace:write', 'storage:own'],
-    requests: {
-      'workspaces.list': () => ({ workspaces: WORKSPACES }),
-      'files.search': () => ({ files: ['src/a.ts'], total: 1, recent: [] }),
-      'file.history': () => {
-        throw new Error('fatal: not a git repository')
-      }
-    }
-  })
-  const view = await mount(panel, { host: h })
-  await view.type({ label: 'Find a file' }, 'a')
-  await view.press({ label: 'a.ts' })
+  const view = await mountFocused(host(true))
   assert.ok(view.summary().includes('Callout danger "Git could not answer"'))
   await view.unmount()
 })
 
 test('matches the focused workspace by name and branch', () => {
-  assert.equal(focusedWorkspace(WORKSPACES, { displayName: 'app', branch: 'main' }), 'w1')
-  assert.equal(focusedWorkspace(WORKSPACES, { displayName: 'app', branch: 'other' }), 'w1')
+  assert.equal(focusedWorkspace(WORKSPACES, { displayName: 'app', branch: 'feature' })?.id, 'w2')
+  assert.equal(focusedWorkspace(WORKSPACES, { displayName: 'app', branch: 'other' })?.id, 'w1')
+  assert.equal(focusedWorkspace(WORKSPACES, { displayName: 'notes', branch: '' })?.id, 'w3')
   assert.equal(focusedWorkspace(WORKSPACES, { displayName: 'zzz', branch: 'main' }), null)
   assert.equal(focusedWorkspace(WORKSPACES, null), null)
 })

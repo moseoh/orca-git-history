@@ -42,6 +42,16 @@ declare module 'orca' {
   interface PluginRequests {
     /** Local workspaces Orca knows (SSH and other hosts are left out). */
     'workspaces.list': { output: { workspaces: Workspace[] } }
+    /** The newest commits of the workspace's checked-out branch. */
+    'workspace.log': {
+      input: { workspaceId: string }
+      output: { commits: Commit[] }
+    }
+    /** Everything one commit changed in the workspace: file summary and full diff. */
+    'commit.show': {
+      input: { workspaceId: string; hash: string }
+      output: { diff: string }
+    }
     /** Tracked files matching `query`, best first; `recent` when the query is empty. */
     'files.search': {
       input: { workspaceId: string; query: string }
