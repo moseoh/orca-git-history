@@ -1,0 +1,44 @@
+{
+  "manifestVersion": 2,
+  "id": "file-history",
+  "name": "File History",
+  "version": "0.1.0",
+  "description": "Git history in an editor tab: commits, changed files and side-by-side diffs for your workspace or one file.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "customEditors": [
+      {
+        "id": "git-history",
+        "title": "Git History",
+        "extensions": [
+          ".githistory"
+        ],
+        "entry": "editor/main.ts",
+        "frame": "isolated"
+      }
+    ],
+    "newFiles": [
+      {
+        "id": "git-history",
+        "title": "Git History",
+        "extension": ".githistory"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "workspace:write"
+    },
+    {
+      "kind": "storage:own"
+    }
+  ]
+}
