@@ -311,7 +311,7 @@ function FilePicker() {
           {showing.map((path) => (
             <ListItem
               title={path.slice(path.lastIndexOf('/') + 1)}
-              description={path}
+              description={path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : undefined}
               icon="file"
               current={path === read(file)}
               onPress={() => openFileHistory(path)}

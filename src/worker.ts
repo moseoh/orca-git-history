@@ -12,13 +12,18 @@ const FILE_LIST_TTL_MS = 30_000
 
 type LocalWorkspace = Workspace & { path: string }
 
+/** Orca reports this computer as `'local'` (older builds: null); anything else is SSH or another host. */
+function isLocal(hostId: string | null): boolean {
+  return hostId === null || hostId === 'local'
+}
+
 export default function activate(orca: OrcaWorkerApi): void {
   const fileLists = new Map<string, { at: number; files: Promise<string[]> }>()
 
   async function localWorkspaces(): Promise<LocalWorkspace[]> {
     const { workspaces } = await orca.host.call('workspace.list')
     return workspaces
-      .filter((workspace) => workspace.hostId === null)
+      .filter((workspace) => isLocal(workspace.hostId))
       .map(({ id, name, kind, branch, path }) => ({ id, name, kind, branch, path }))
   }
 

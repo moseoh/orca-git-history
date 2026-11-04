@@ -8,6 +8,7 @@ function workspaceList(path: string) {
   return {
     workspaces: [
       { id: 'local', kind: 'worktree', name: 'demo', path, branch: 'main', hostId: null },
+      { id: 'here', kind: 'folder', name: 'here', path, branch: null, hostId: 'local' },
       { id: 'remote', kind: 'worktree', name: 'far', path: '/srv/far', branch: 'main', hostId: 'ssh-1' }
     ],
     truncated: false
@@ -20,7 +21,10 @@ test('lists only local workspaces', async () => {
     const host = mockHost({ results: { 'workspace.list': workspaceList(repo.dir) } })
     const worker = await mountWorker(main, { host })
     assert.deepEqual(await worker.request('workspaces.list'), {
-      workspaces: [{ id: 'local', name: 'demo', kind: 'worktree', branch: 'main' }]
+      workspaces: [
+        { id: 'local', name: 'demo', kind: 'worktree', branch: 'main' },
+        { id: 'here', name: 'here', kind: 'folder', branch: null }
+      ]
     })
     await assert.rejects(worker.request('files.search', { workspaceId: 'remote', query: 'x' }), /not on this computer/)
     assert.deepEqual(worker.refusals, [])
