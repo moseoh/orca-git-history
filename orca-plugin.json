@@ -1,0 +1,29 @@
+{
+  "manifestVersion": 2,
+  "id": "file-history",
+  "name": "File History",
+  "version": "0.1.0",
+  "description": "Git history, blame and line-range history for any file in your workspace.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "file-history",
+        "title": "File History",
+        "icon": "branch",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "workspace:write" },
+    { "kind": "storage:own" }
+  ]
+}

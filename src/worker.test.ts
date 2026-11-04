@@ -1,0 +1,99 @@
+// Runs src/worker.ts's activate(orca) over a mock host whose workspace list points at a real
+// throwaway repository.
+import { assert, mockHost, mountWorker, test } from 'orca/testing'
+import * as main from './worker'
+import { createTestRepo } from './testing/repo'
+
+function workspaceList(path: string) {
+  return {
+    workspaces: [
+      { id: 'local', kind: 'worktree', name: 'demo', path, branch: 'main', hostId: null },
+      { id: 'remote', kind: 'worktree', name: 'far', path: '/srv/far', branch: 'main', hostId: 'ssh-1' }
+    ],
+    truncated: false
+  }
+}
+
+test('lists only local workspaces', async () => {
+  const repo = await createTestRepo()
+  try {
+    const host = mockHost({ results: { 'workspace.list': workspaceList(repo.dir) } })
+    const worker = await mountWorker(main, { host })
+    assert.deepEqual(await worker.request('workspaces.list'), {
+      workspaces: [{ id: 'local', name: 'demo', kind: 'worktree', branch: 'main' }]
+    })
+    await assert.rejects(worker.request('files.search', { workspaceId: 'remote', query: 'x' }), /not on this computer/)
+    assert.deepEqual(worker.refusals, [])
+    await worker.deactivate()
+  } finally {
+    repo.dispose()
+  }
+})
+
+test('searches tracked files and remembers files whose history was opened', async () => {
+  const repo = await createTestRepo()
+  try {
+    const host = mockHost({ results: { 'workspace.list': workspaceList(repo.dir) } })
+    const worker = await mountWorker(main, { host })
+    const found = await worker.request('files.search', { workspaceId: 'local', query: 'greet' })
+    assert.deepEqual(found, { files: ['src/greet.ts', 'docs/greeting.md'], total: 2, recent: [] })
+
+    await worker.request('file.history', { workspaceId: 'local', path: 'src/util.ts' })
+    const { commits } = await worker.request('file.history', { workspaceId: 'local', path: 'src/greet.ts' })
+    assert.equal(commits.length, 4)
+    const empty = await worker.request('files.search', { workspaceId: 'local', query: '' })
+    assert.deepEqual(empty.recent, ['src/greet.ts', 'src/util.ts'])
+    assert.deepEqual(host.data().storage, { 'recent:local': ['src/greet.ts', 'src/util.ts'] })
+    await worker.deactivate()
+  } finally {
+    repo.dispose()
+  }
+})
+
+test('answers blame, diffs and line history for a workspace file', async () => {
+  const repo = await createTestRepo()
+  try {
+    const host = mockHost({ results: { 'workspace.list': workspaceList(repo.dir) } })
+    const worker = await mountWorker(main, { host })
+    const blame = await worker.request('file.blame', { workspaceId: 'local', path: 'src/greet.ts' })
+    assert.equal(blame.lines.length, 4)
+    const lines = await worker.request('lines.history', {
+      workspaceId: 'local',
+      path: 'src/greet.ts',
+      start: 4,
+      end: 4
+    })
+    assert.deepEqual(
+      lines.commits.map((item) => item.subject),
+      ['Add d']
+    )
+    const hash = lines.commits[0]?.hash ?? ''
+    const { diff } = await worker.request('commit.diff', { workspaceId: 'local', hash, path: 'src/greet.ts' })
+    assert.match(diff, /^\+d$/m)
+    await worker.deactivate()
+  } finally {
+    repo.dispose()
+  }
+})
+
+test('opens a file in the editor by its workspace-relative path', async () => {
+  const repo = await createTestRepo()
+  try {
+    const host = mockHost({
+      results: { 'workspace.list': workspaceList(repo.dir), 'editor.open': { opened: true } }
+    })
+    const worker = await mountWorker(main, { host })
+    assert.deepEqual(await worker.request('file.open', { workspaceId: 'local', path: 'src/greet.ts' }), {
+      opened: true
+    })
+    assert.deepEqual(host.callsOf('editor.open'), [
+      { workspaceId: 'local', path: 'src/greet.ts' }
+    ])
+    await assert.rejects(worker.request('file.open', { workspaceId: 'local', path: '../etc/passwd' }), /Not a path/)
+    assert.equal(host.callsOf('editor.open').length, 1)
+    assert.deepEqual(worker.refusals, [])
+    await worker.deactivate()
+  } finally {
+    repo.dispose()
+  }
+})
