@@ -1,5 +1,5 @@
-// The plugin's worker: runs git in the chosen workspace's folder and answers the panel.
-// Orca starts it on the panel's first plugin.request; a save restarts it, so anything that must
+// The plugin's worker: runs git in the chosen workspace's folder and answers the Git History tab.
+// Orca starts it on the tab's first plugin.request; a save restarts it, so anything that must
 // outlive a restart (recent files) lives in orca.storage.
 import type { OrcaWorkerApi } from 'orca/worker'
 import * as git from './git'

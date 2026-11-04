@@ -6,7 +6,7 @@ import type { ChangedFile, Commit, CommitInfo, CommitPage } from './protocol'
 export const LIMITS = {
   /** Commits one page of a log holds. */
   pageSize: 50,
-  /** Characters of one file's diff sent to the panel. */
+  /** Characters of one file's diff sent to the tab. */
   diffChars: 60_000,
   /** Files listed for one commit. */
   changedFiles: 500
@@ -49,7 +49,7 @@ export function git(cwd: string, args: readonly string[]): Promise<string> {
   })
 }
 
-/** A repo-relative path the panel may ask about: no absolute paths, no `..`, no options. */
+/** A repo-relative path the tab may ask about: no absolute paths, no `..`, no options. */
 export function checkRelativePath(path: string): string {
   const parts = path.split('/')
   if (

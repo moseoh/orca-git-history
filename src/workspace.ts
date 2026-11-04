@@ -1,4 +1,4 @@
-// Shared by the panel and the Git History tab: which workspace Orca has focused, and short ages.
+// For the Git History tab: which workspace Orca has focused, and short ages.
 import type { Workspace } from './protocol'
 
 export type FocusedContext = { branch: string; displayName: string } | null

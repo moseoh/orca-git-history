@@ -3,7 +3,7 @@
   "id": "file-history",
   "name": "File History",
   "version": "0.1.0",
-  "description": "Git history, blame and line-range history for any file in your workspace.",
+  "description": "Git history in an editor tab: commits, changed files and side-by-side diffs for your workspace or one file.",
   "engines": {
     "orca": ">=1.4.248"
   },
@@ -11,15 +11,6 @@
   "pluginApi": 1,
   "main": "src/worker.ts",
   "contributes": {
-    "panels": [
-      {
-        "id": "file-history",
-        "title": "File History",
-        "icon": "branch",
-        "entry": "src/panel.tsx",
-        "ui": "components"
-      }
-    ],
     "customEditors": [
       {
         "id": "git-history",

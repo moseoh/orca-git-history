@@ -1,5 +1,5 @@
-// The panel <-> worker contract, declared once: src/panel.tsx and src/worker.ts both read it.
-// Every request names a workspace by id; the worker looks up its folder, so a panel never
+// The tab <-> worker contract, declared once: editor/app.ts and src/worker.ts both read it.
+// Every request names a workspace by id; the worker looks up its folder, so the tab never
 // passes a filesystem path, only paths relative to the workspace root.
 
 export type Workspace = {
