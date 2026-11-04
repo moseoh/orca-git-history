@@ -97,8 +97,64 @@ const rows = el('div')
 const listStatus = el('div', { class: 'status-line' })
 list.append(rows, listStatus)
 const detail = el('div', { class: 'detail' })
-const body = el('div', { class: 'body' }, list, detail)
+const gutter = el('div', { class: 'gutter', title: 'Drag to resize; double-click to reset' })
+const body = el('div', { class: 'body' }, list, gutter, detail)
 document.body.append(el('div', { class: 'app' }, toolbar, body))
+
+// ---------- resizable split ----------
+
+const LIST_WIDTH_KEY = 'layout:listWidth'
+const LIST_MIN = 240
+const DETAIL_MIN = 320
+
+/** Keeps the commit list between its minimum and what leaves the detail its own minimum. */
+function setListWidth(px: number | null): void {
+  if (px === null) {
+    body.style.removeProperty('--list-width')
+    return
+  }
+  const max = Math.max(LIST_MIN, body.clientWidth - DETAIL_MIN)
+  body.style.setProperty('--list-width', `${Math.round(Math.min(Math.max(px, LIST_MIN), max))}px`)
+}
+
+function saveListWidth(): void {
+  const value = body.style.getPropertyValue('--list-width')
+  const stored = value === '' ? null : Number.parseInt(value, 10)
+  void (stored === null ? orca.storage.delete(LIST_WIDTH_KEY) : orca.storage.set(LIST_WIDTH_KEY, stored)).catch(() => {})
+}
+
+gutter.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  gutter.setPointerCapture(event.pointerId)
+  body.classList.add('resizing')
+  const left = body.getBoundingClientRect().left
+  const move = (moved: PointerEvent): void => setListWidth(moved.clientX - left)
+  const end = (): void => {
+    gutter.removeEventListener('pointermove', move)
+    gutter.removeEventListener('pointerup', end)
+    gutter.removeEventListener('pointercancel', end)
+    body.classList.remove('resizing')
+    saveListWidth()
+  }
+  gutter.addEventListener('pointermove', move)
+  gutter.addEventListener('pointerup', end)
+  gutter.addEventListener('pointercancel', end)
+})
+gutter.addEventListener('dblclick', () => {
+  setListWidth(null)
+  saveListWidth()
+})
+
+window.addEventListener('resize', () => {
+  const current = body.style.getPropertyValue('--list-width')
+  if (current !== '') setListWidth(Number.parseInt(current, 10))
+})
+
+async function restoreListWidth(): Promise<void> {
+  const stored = await orca.storage.get(LIST_WIDTH_KEY).catch(() => null)
+  if (typeof stored === 'number') setListWidth(stored)
+}
 
 // ---------- data ----------
 
@@ -531,6 +587,7 @@ export async function start(): Promise<void> {
   listStatus.textContent = 'Waiting for Orca…'
   // Orca waits for an editor to take its document; this tab only uses the file as a handle.
   void orca.document?.get()
+  void restoreListWidth()
   let seen = false
   orca.on('workspace.changed', (payload) => {
     seen = true

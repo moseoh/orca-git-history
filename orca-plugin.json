@@ -35,8 +35,7 @@
       {
         "id": "git-history",
         "title": "Git History",
-        "extension": ".githistory",
-        "template": "editor/template.githistory"
+        "extension": ".githistory"
       }
     ]
   },

@@ -45,9 +45,15 @@ button { font: inherit; color: inherit; }
 .btn:hover { background: var(--orca-accent); color: var(--orca-accent-foreground); }
 .btn.ghost { border-color: transparent; padding: 2px 6px; }
 .btn.on { background: var(--orca-secondary); color: var(--orca-secondary-foreground); }
-.body { display: grid; grid-template-columns: minmax(340px, 42%) 1fr; min-height: 0; }
-@media (max-width: 900px) { .body { grid-template-columns: 1fr; grid-template-rows: 40% 60%; } }
-.list { overflow: auto; border-right: 1px solid var(--orca-border); min-height: 0; }
+.body { display: grid; grid-template-columns: var(--list-width, minmax(340px, 42%)) 5px minmax(0, 1fr); min-height: 0; }
+.gutter {
+  cursor: col-resize; touch-action: none; background: var(--orca-border);
+  background-clip: content-box; padding: 0 2px; transition: background-color 0.1s;
+}
+.gutter:hover, .body.resizing .gutter { background-color: var(--orca-ring); padding: 0 1px; }
+.body.resizing { cursor: col-resize; user-select: none; }
+.body.resizing iframe, .body.resizing .list, .body.resizing .detail { pointer-events: none; }
+.list { overflow: auto; min-height: 0; }
 .row {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 6px 12px; cursor: pointer;
   border-bottom: 1px solid color-mix(in srgb, var(--orca-border) 50%, transparent);
