@@ -13,13 +13,13 @@ Open it from the tab bar **+** menu or the command palette: **Git History**.
 - **Find a file** narrows the list to the commits that changed that file, following renames.
 - **Open file** opens the file in an editor tab; **File history** shows only that file's commits.
 
-The tab follows the project focused in Orca; with none focused it asks you to click one.
+The tab follows the project focused in Orca.
 Drag the divider between the commits and the details to resize them (double-click resets it).
 
 ## Limitations
 
-- **Local projects only.** Orca doesn't pass projects on a remote Orca server or over SSH to
-  plugins, so the tab says such a project isn't on this computer.
+- **Local projects only.** Orca tells plugins nothing about projects on a remote Orca server or
+  over SSH, so in such a project the tab says it isn't on this computer.
 - **The repository must be at the project's root.** A folder project that holds several
   repositories in subfolders shows "isn't a Git repository".
 - **The tab's handle file.** The **+** menu creates an empty `untitled.githistory` (or

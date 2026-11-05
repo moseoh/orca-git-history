@@ -190,13 +190,15 @@ async function reload(): Promise<void> {
   if (first) void selectCommit(first.hash)
 }
 
+const REMOTE_UNSUPPORTED =
+  "Git History reads Git repositories on this computer only; projects on a remote Orca server or over SSH aren't supported yet."
+
+// Orca tells plugins nothing about a project on a remote Orca server: focusing one reads as no
+// project at all. The tab opens from a project's + menu, so no project almost always means that.
 function noWorkspaceMessage(context: FocusedContext): string {
-  if (context === null) return 'Click a project in the left sidebar to see its history.'
+  if (context === null) return `This project isn't on this computer. ${REMOTE_UNSUPPORTED}`
   const name = context.branch === '' ? context.displayName : `${context.displayName} (${context.branch})`
-  return (
-    `${name} isn't a project on this computer. Git History reads local Git repositories only; ` +
-    "projects on a remote Orca server or over SSH aren't supported yet."
-  )
+  return `${name} isn't a project on this computer. ${REMOTE_UNSUPPORTED}`
 }
 
 async function loadPage(): Promise<void> {
