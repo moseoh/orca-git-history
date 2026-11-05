@@ -46,6 +46,8 @@ type DiffMode = 'split' | 'unified'
 
 const state = {
   workspace: null as Workspace | null,
+  /** What Orca last said is focused, to explain why no workspace matched. */
+  context: null as FocusedContext,
   workspaces: null as Workspace[] | null,
   /** null: the whole project's log; a path: only commits that changed it. */
   file: null as string | null,
@@ -163,6 +165,7 @@ async function followFocus(context: FocusedContext): Promise<void> {
     state.workspaces = (await orca.plugin.request('workspaces.list')).workspaces
   }
   const next = state.workspaces === null ? null : focusedWorkspace(state.workspaces, context)
+  state.context = context
   if (next?.id === state.workspace?.id && next !== null) return
   state.workspace = next
   state.file = null
@@ -179,12 +182,21 @@ async function reload(): Promise<void> {
   rows.replaceChildren()
   renderDetail()
   if (state.workspace === null) {
-    listStatus.textContent = 'Click a project in the left sidebar, then open Git History again from the + menu.'
+    listStatus.textContent = noWorkspaceMessage(state.context)
     return
   }
   await loadPage()
   const first = state.commits[0]
   if (first) void selectCommit(first.hash)
+}
+
+function noWorkspaceMessage(context: FocusedContext): string {
+  if (context === null) return 'Click a project in the left sidebar to see its history.'
+  const name = context.branch === '' ? context.displayName : `${context.displayName} (${context.branch})`
+  return (
+    `${name} isn't a project on this computer. Git History reads local Git repositories only; ` +
+    "projects on a remote Orca server or over SSH aren't supported yet."
+  )
 }
 
 async function loadPage(): Promise<void> {

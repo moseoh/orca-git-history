@@ -3,12 +3,18 @@ import type { Workspace } from './protocol'
 
 export type FocusedContext = { branch: string; displayName: string } | null
 
-/** The workspace Orca has focused, matched by name and branch; null when none matches. */
+/**
+ * The local workspace Orca has focused; null when none matches. Orca names the focused project
+ * only by name and branch, so both must match: a project of the same name on a remote Orca server
+ * or over SSH is never mistaken for a local one. A folder project Orca reports without a branch
+ * matches by name.
+ */
 export function focusedWorkspace(list: readonly Workspace[], context: FocusedContext): Workspace | null {
   if (context === null) return null
+  const named = list.filter((item) => item.name === context.displayName)
   return (
-    list.find((item) => item.name === context.displayName && (item.branch ?? '') === context.branch) ??
-    list.find((item) => item.name === context.displayName) ??
+    named.find((item) => (item.branch ?? '') === context.branch) ??
+    named.find((item) => item.kind === 'folder' && context.branch === '') ??
     null
   )
 }

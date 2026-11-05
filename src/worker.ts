@@ -27,10 +27,20 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (!fresh && workspaceList !== null && Date.now() - workspaceList.at < WORKSPACE_LIST_TTL_MS) {
       return workspaceList.workspaces
     }
+    // Orca lists no branch for folder projects; the folder's own checkout tells them apart from a
+    // same-named project elsewhere (see focusedWorkspace).
     const workspaces = orca.host.call('workspace.list').then((answer) =>
-      answer.workspaces
-        .filter((workspace) => isLocal(workspace.hostId))
-        .map(({ id, name, kind, branch, path }) => ({ id, name, kind, branch, path }))
+      Promise.all(
+        answer.workspaces
+          .filter((workspace) => isLocal(workspace.hostId))
+          .map(async ({ id, name, kind, branch, path }) => ({
+            id,
+            name,
+            kind,
+            branch: kind === 'folder' ? await git.currentBranch(path) : branch,
+            path
+          }))
+      )
     )
     workspaceList = { at: Date.now(), workspaces }
     workspaces.catch(() => {
