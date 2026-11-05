@@ -57,3 +57,7 @@ Layout:
 - `editor/`: the Git History tab (`app.ts`), its side-by-side diff parser (`diff.ts`) and styles.
 - `src/workspace.ts`: which workspace Orca has focused, and short ages.
 - `src/node.d.ts`: types for the few Node built-ins the worker uses, so no `@types/node` is needed.
+
+## License
+
+MIT. See `LICENSE`.
