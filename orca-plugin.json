@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "git-history",
   "name": "Git History",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Git history in an editor tab: commits, changed files and side-by-side diffs for your workspace or one file.",
   "engines": {
     "orca": ">=1.4.248"
