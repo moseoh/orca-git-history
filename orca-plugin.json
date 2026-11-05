@@ -1,7 +1,7 @@
 {
   "manifestVersion": 2,
-  "id": "file-history",
-  "name": "File History",
+  "id": "git-history",
+  "name": "Git History",
   "version": "0.1.0",
   "description": "Git history in an editor tab: commits, changed files and side-by-side diffs for your workspace or one file.",
   "engines": {

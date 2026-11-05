@@ -1,4 +1,4 @@
-# File History
+# Git History
 
 An [Orca](https://onorca.dev) plugin that shows the Git history of the project you click in the
 left sidebar, in a full editor tab.
@@ -14,12 +14,19 @@ Open it from the tab bar **+** menu or the command palette: **Git History**.
 - **Open file** opens the file in an editor tab; **File history** shows only that file's commits.
 
 The tab follows the project focused in Orca; with none focused it asks you to click one.
-Projects on SSH or other hosts are not supported yet.
-
 Drag the divider between the commits and the details to resize them (double-click resets it).
 
-The **+** menu creates an empty `untitled.githistory` at the project root as the tab's handle;
-nothing is written to it, so Orca deletes it when the tab closes.
+## Limitations
+
+- **Local projects only.** Orca doesn't pass projects on a remote Orca server or over SSH to
+  plugins, so the tab says such a project isn't on this computer.
+- **The repository must be at the project's root.** A folder project that holds several
+  repositories in subfolders shows "isn't a Git repository".
+- **The tab's handle file.** The **+** menu creates an empty `untitled.githistory` (or
+  `untitled-2.githistory`, … when that name is taken) at the project root. It shows in the file
+  tree while the tab is open. Nothing is written to it, so Orca deletes it when the tab closes;
+  it stays only if something else writes into it.
+- Tested on macOS with Orca 1.4.248.
 
 ## Access it asks for
 

@@ -24,6 +24,9 @@ export class GitError extends Error {
   }
 }
 
+export const NOT_A_REPOSITORY =
+  "This project's folder isn't a Git repository. Git History reads the repository at the project's root."
+
 /** Runs `git <args>` in `cwd` and resolves with stdout. */
 export function git(cwd: string, args: readonly string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -39,8 +42,8 @@ export function git(cwd: string, args: readonly string[]): Promise<string> {
       },
       (error, stdout, stderr) => {
         if (error) {
-          const detail = (stderr || error.message).trim().split('\n')[0]
-          reject(new GitError(detail || 'git failed'))
+          const detail = (stderr || error.message).trim().split('\n')[0] ?? ''
+          reject(new GitError(/not a git repository/i.test(detail) ? NOT_A_REPOSITORY : detail || 'git failed'))
           return
         }
         resolve(stdout)
@@ -249,4 +252,14 @@ export async function fileDiff(
     ...paths
   ])
   return capDiff(output.replace(/^\n+/, '').trimEnd())
+}
+
+/** The checked-out branch of the repository at `cwd`; null when it is no repository or HEAD is detached. */
+export async function currentBranch(cwd: string): Promise<string | null> {
+  try {
+    const branch = (await git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'])).trim()
+    return branch === '' ? null : branch
+  } catch {
+    return null
+  }
 }
