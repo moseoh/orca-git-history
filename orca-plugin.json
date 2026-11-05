@@ -4,6 +4,12 @@
   "name": "Git History",
   "version": "0.1.1",
   "description": "Git history in an editor tab: commits, changed files and side-by-side diffs for your workspace or one file.",
+  "author": {
+    "name": "moseoh",
+    "url": "https://github.com/moseoh"
+  },
+  "repository": "https://github.com/moseoh/orca-git-history",
+  "icon": "assets/icon.png",
   "engines": {
     "orca": ">=1.4.248"
   },
