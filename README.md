@@ -3,6 +3,8 @@
 An [Orca](https://onorca.dev) plugin that shows the Git history of the project you click in the
 left sidebar, in a full editor tab.
 
+![Git History tab: commits on the left, a commit's changed files and side-by-side diff on the right](assets/screenshot-commit.png)
+
 ## Git History tab
 
 Open it from the tab bar **+** menu or the command palette: **Git History**.

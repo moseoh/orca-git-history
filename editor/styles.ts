@@ -93,7 +93,7 @@ button { font: inherit; color: inherit; }
 .diff-head .path { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notes { padding: 8px 16px; color: var(--orca-muted-foreground); }
 table.diff { width: 100%; border-collapse: collapse; table-layout: fixed; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-table.diff td { padding: 0 8px; vertical-align: top; white-space: pre-wrap; word-break: break-all; }
+table.diff td { padding: 0 8px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
 table.diff td.num {
   text-align: right; color: var(--orca-muted-foreground); user-select: none;
   white-space: nowrap; word-break: normal;

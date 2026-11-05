@@ -4,6 +4,12 @@
   "name": "Git History",
   "version": "0.1.1",
   "description": "Git history in an editor tab: commits, changed files and side-by-side diffs for your workspace or one file.",
+  "author": {
+    "name": "moseoh",
+    "url": "https://github.com/moseoh"
+  },
+  "repository": "https://github.com/moseoh/orca-git-history",
+  "icon": "assets/icon.png",
   "engines": {
     "orca": ">=1.4.248"
   },
@@ -39,6 +45,18 @@
     },
     {
       "kind": "storage:own"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "assets/screenshot-commit.png",
+      "alt": "Git History tab: the project's commits on the left; the picked commit's message, changed files and a side-by-side diff on the right.",
+      "caption": "A commit with its changed files and a side-by-side diff"
+    },
+    {
+      "path": "assets/screenshot-file-history.png",
+      "alt": "Git History tab narrowed to README.md: only the commits that changed it, with that file's diff in the unified view.",
+      "caption": "One file's history, unified diff"
     }
   ]
 }
