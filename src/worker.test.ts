@@ -23,7 +23,8 @@ test('lists only local workspaces', async () => {
     assert.deepEqual(await worker.request('workspaces.list'), {
       workspaces: [
         { id: 'local', name: 'demo', kind: 'worktree', branch: 'main' },
-        { id: 'here', name: 'here', kind: 'folder', branch: null }
+        // Orca gives folders no branch; the worker reads the folder's own checkout.
+        { id: 'here', name: 'here', kind: 'folder', branch: 'main' }
       ]
     })
     await assert.rejects(worker.request('files.search', { workspaceId: 'remote', query: 'x' }), /not on this computer/)

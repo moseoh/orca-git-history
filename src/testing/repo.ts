@@ -29,7 +29,7 @@ async function commit(dir: string, author: string, date: string, message: string
  * 4. Grace appends line d
  */
 export async function createTestRepo(): Promise<TestRepo> {
-  const dir = mkdtempSync(join(tmpdir(), 'file-history-'))
+  const dir = mkdtempSync(join(tmpdir(), 'git-history-'))
   const write = (path: string, text: string): void => writeFileSync(join(dir, path), text)
   await git(dir, ['init', '-q', '-b', 'main'])
   mkdirSync(join(dir, 'src'))

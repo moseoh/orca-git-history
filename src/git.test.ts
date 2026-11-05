@@ -162,6 +162,18 @@ test('git errors carry git’s own first line', async () => {
   }
 })
 
+test('a folder that is no repository says so plainly', async () => {
+  const repo = await createTestRepo()
+  try {
+    const outside = repo.dir.slice(0, repo.dir.lastIndexOf('/'))
+    await assert.rejects(git.workspaceLog(outside, 0), (error) => error instanceof git.GitError && error.message === git.NOT_A_REPOSITORY)
+    assert.equal(await git.currentBranch(outside), null)
+    assert.equal(await git.currentBranch(repo.dir), 'main')
+  } finally {
+    repo.dispose()
+  }
+})
+
 test('long diffs are cut on a line break', () => {
   const diff = Array.from({ length: 30_000 }, (_, index) => `+line ${index}`).join('\n')
   const capped = git.capDiff(diff)
